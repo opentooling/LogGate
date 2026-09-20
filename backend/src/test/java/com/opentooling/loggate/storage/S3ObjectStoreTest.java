@@ -37,6 +37,7 @@ class S3ObjectStoreTest {
 
   private static MinIOContainer minio;
   private static S3Client s3;
+  private static software.amazon.awssdk.services.s3.presigner.S3Presigner presigner;
   private static S3ObjectStore store;
 
   @BeforeAll
@@ -48,6 +49,10 @@ class S3ObjectStoreTest {
             org.testcontainers.utility.DockerImageName.parse(
                     "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z")
                 .asCompatibleSubstituteFor("minio/minio"));
+    // The container runtime intermittently drops its API connection when the
+    // machine is busy, which shows up as a container that never starts. Retry
+    // rather than leave a test that fails every other run.
+    minio.withStartupAttempts(3);
     minio.start();
     s3 =
         S3Client.builder()
@@ -59,11 +64,23 @@ class S3ObjectStoreTest {
             .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
             .build();
     s3.createBucket(CreateBucketRequest.builder().bucket(BUCKET).build());
-    store = new S3ObjectStore(s3, BUCKET);
+    presigner =
+        software.amazon.awssdk.services.s3.presigner.S3Presigner.builder()
+            .endpointOverride(URI.create(minio.getS3URL()))
+            .region(Region.US_EAST_1)
+            .credentialsProvider(
+                StaticCredentialsProvider.create(
+                    AwsBasicCredentials.create(minio.getUserName(), minio.getPassword())))
+            .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+            .build();
+    store = new S3ObjectStore(s3, presigner, BUCKET);
   }
 
   @AfterAll
   static void stopStorage() {
+    if (presigner != null) {
+      presigner.close();
+    }
     if (s3 != null) {
       s3.close();
     }
@@ -147,6 +164,35 @@ class S3ObjectStoreTest {
         .isInstanceOf(UncheckedIOException.class);
 
     assertThatThrownBy(() -> read(key)).isInstanceOf(NoSuchKeyException.class);
+  }
+
+  @Test
+  void mintsAUrlThatActuallyDownloadsTheObject() throws Exception {
+    // The whole point of presigning is that the bytes never pass through the
+    // control plane, so the URL has to work on its own.
+    String key = "test/" + UUID.randomUUID() + "/presigned.txt";
+    store.put(key, out -> out.write("downloadable".getBytes(StandardCharsets.UTF_8)));
+
+    String url = store.presignedUrl(key, java.time.Duration.ofMinutes(5));
+    var response =
+        java.net.http.HttpClient.newHttpClient()
+            .send(
+                java.net.http.HttpRequest.newBuilder(java.net.URI.create(url)).build(),
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+    assertThat(response.statusCode()).isEqualTo(200);
+    assertThat(response.body()).isEqualTo("downloadable");
+  }
+
+  @Test
+  void readsAnObjectBackAndReportsItsSize() throws IOException {
+    String key = "test/" + UUID.randomUUID() + "/readable.txt";
+    store.put(key, out -> out.write("read me".getBytes(StandardCharsets.UTF_8)));
+
+    try (var in = store.open(key)) {
+      assertThat(new String(in.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("read me");
+    }
+    assertThat(store.size(key)).isEqualTo(7);
   }
 
   @Test

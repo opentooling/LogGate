@@ -25,4 +25,20 @@ public interface ObjectStore {
 
   /** Removes every object under a prefix, for retention and cancellation. */
   void deletePrefix(String prefix);
+
+  /**
+   * A URL that downloads {@code key} directly from object storage.
+   *
+   * <p>Bulk downloads must not pass through the control plane: tens of
+   * gigabytes through an application process is wasted bandwidth and a
+   * needless failure point. The URL is short-lived, and entitlement is checked
+   * when it is minted, not only when the export was submitted.
+   */
+  String presignedUrl(String key, java.time.Duration validFor);
+
+  /** Opens {@code key} for reading, for the proxied archive path. */
+  java.io.InputStream open(String key);
+
+  /** Size of {@code key} in bytes. */
+  long size(String key);
 }

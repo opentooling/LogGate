@@ -26,6 +26,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import tools.jackson.databind.ObjectMapper;
 
 /** The queue, the workers, and the storage they write to. */
@@ -66,19 +67,43 @@ public class JobsConfig {
         .region(Region.of(storage.region()))
         // Static keys when configured, otherwise the default chain, so a
         // production deployment can use an IAM role instead of a secret.
-        .credentialsProvider(
-            storage.accessKey().isBlank()
-                ? software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider.builder().build()
-                : StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(storage.accessKey(), storage.secretKey())))
+        .credentialsProvider(credentials(storage))
         // MinIO addresses buckets by path, not by subdomain.
         .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(storage.pathStyle()).build())
         .build();
   }
 
   @Bean
-  ObjectStore objectStore(S3Client s3Client, LogGateProperties properties) {
-    return new com.opentooling.loggate.storage.S3ObjectStore(s3Client, properties.storage().bucket());
+  public S3Presigner s3Presigner(LogGateProperties properties) {
+    LogGateProperties.Storage storage = properties.storage();
+    return S3Presigner.builder()
+        // Presigned URLs are opened by a browser, so they must carry the URL a
+        // browser can reach, which is not always the in-cluster endpoint.
+        .endpointOverride(URI.create(publicEndpoint(storage)))
+        .region(Region.of(storage.region()))
+        .credentialsProvider(credentials(storage))
+        .serviceConfiguration(
+            S3Configuration.builder().pathStyleAccessEnabled(storage.pathStyle()).build())
+        .build();
+  }
+
+  private static String publicEndpoint(LogGateProperties.Storage storage) {
+    return storage.publicEndpoint().isBlank() ? storage.endpoint() : storage.publicEndpoint();
+  }
+
+  private static software.amazon.awssdk.auth.credentials.AwsCredentialsProvider credentials(
+      LogGateProperties.Storage storage) {
+    return storage.accessKey().isBlank()
+        ? software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider.builder().build()
+        : StaticCredentialsProvider.create(
+            AwsBasicCredentials.create(storage.accessKey(), storage.secretKey()));
+  }
+
+  @Bean
+  ObjectStore objectStore(
+      S3Client s3Client, S3Presigner s3Presigner, LogGateProperties properties) {
+    return new com.opentooling.loggate.storage.S3ObjectStore(
+        s3Client, s3Presigner, properties.storage().bucket());
   }
 
   @Bean
@@ -97,8 +122,25 @@ public class JobsConfig {
   }
 
   @Bean
-  JobFinalizer jobFinalizer(ExportJobRepository jobs, ObjectStore store, LogGateProperties properties) {
-    return new JobFinalizer(jobs, store, properties.execution().retention(), Clock.systemUTC());
+  com.opentooling.loggate.delivery.ManifestBuilder manifestBuilder(ExportJobRepository jobs) {
+    return new com.opentooling.loggate.delivery.ManifestBuilder(jobs, Clock.systemUTC());
+  }
+
+  @Bean
+  com.opentooling.loggate.delivery.DeliveryService deliveryService(
+      ExportJobRepository jobs, ObjectStore store, LogGateProperties properties) {
+    return new com.opentooling.loggate.delivery.DeliveryService(jobs, store, properties);
+  }
+
+  @Bean
+  JobFinalizer jobFinalizer(
+      ExportJobRepository jobs,
+      ObjectStore store,
+      com.opentooling.loggate.delivery.ManifestBuilder manifests,
+      ObjectMapper json,
+      LogGateProperties properties) {
+    return new JobFinalizer(
+        jobs, store, manifests, json, properties.execution().retention(), Clock.systemUTC());
   }
 
   /** Workers run unless switched off, which is what the web slice tests do. */
@@ -128,6 +170,7 @@ public class JobsConfig {
     public void run() {
       finalizer.publishFinished();
       finalizer.closeCancelled();
+      finalizer.sweepExpired();
     }
   }
 }

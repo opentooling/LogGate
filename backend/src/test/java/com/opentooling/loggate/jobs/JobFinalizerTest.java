@@ -32,9 +32,20 @@ class JobFinalizerTest {
 
   private final InMemoryObjectStore store = new InMemoryObjectStore();
 
+  @Autowired private tools.jackson.databind.ObjectMapper json;
+
   private JobFinalizer finalizer() {
+    return finalizer(store);
+  }
+
+  private JobFinalizer finalizer(com.opentooling.loggate.storage.ObjectStore objectStore) {
     return new JobFinalizer(
-        jobs, store, Duration.ofHours(48), Clock.fixed(NOW, ZoneOffset.UTC));
+        jobs,
+        objectStore,
+        new com.opentooling.loggate.delivery.ManifestBuilder(jobs, Clock.fixed(NOW, ZoneOffset.UTC)),
+        json,
+        Duration.ofHours(48),
+        Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
   @BeforeEach
@@ -71,6 +82,71 @@ class JobFinalizerTest {
   }
 
   @Test
+  void writesAManifestBeforePublishing() {
+    // An export nobody can verify is not finished, so the manifest is written
+    // before the job is advertised as ready.
+    UUID id = createJob();
+    jobs.completeWindow(id, 0, 10, 1);
+
+    finalizer().publishFinished();
+
+    String key = com.opentooling.loggate.delivery.DeliveryService.manifestKey(id);
+    assertThat(store.objects()).containsKey(key);
+    String manifest = new String(store.objects().get(key), java.nio.charset.StandardCharsets.UTF_8);
+    assertThat(manifest).contains("\"jobId\"").contains(id.toString()).contains("\"parts\"");
+    assertThat(jobs.listArtifacts(id, "MANIFEST")).hasSize(1);
+  }
+
+  @Test
+  void leavesAJobUnpublishedIfItsManifestCannotBeWritten() {
+    // Publishing without a manifest would advertise something unverifiable.
+    UUID id = createJob();
+    jobs.completeWindow(id, 0, 10, 1);
+    var failing = new InMemoryObjectStore().failWith(new RuntimeException("bucket unreachable"));
+
+    assertThat(finalizer(failing).publishFinished()).isZero();
+    assertThat(jobs.find(id).orElseThrow().state()).isEqualTo(JobState.FINALIZING);
+  }
+
+  @Test
+  void sweepsTheArtifactsOfAnExpiredExport() {
+    // These files are production log data; retention is the whole point.
+    UUID id = createJob();
+    jobs.completeWindow(id, 0, 10, 1);
+    finalizer().publishFinished();
+    store.put(PartKeys.part(id, 0), out -> out.write("data".getBytes()));
+    // Expiry is compared against the database's clock, not the test's, so this
+    // has to be genuinely in the past rather than past relative to NOW.
+    jobs.setExpiry(id, Instant.now().minus(Duration.ofHours(1)));
+
+    assertThat(finalizer().sweepExpired()).isEqualTo(1);
+
+    assertThat(jobs.find(id).orElseThrow().state()).isEqualTo(JobState.EXPIRED);
+    assertThat(store.objects()).isEmpty();
+  }
+
+  @Test
+  void leavesAnExpiredExportAloneIfItsArtifactsCannotBeSwept() {
+    UUID id = createJob();
+    jobs.completeWindow(id, 0, 10, 1);
+    finalizer().publishFinished();
+    jobs.setExpiry(id, Instant.now().minus(Duration.ofHours(1)));
+    var failing = new InMemoryObjectStore().failWith(new RuntimeException("bucket unreachable"));
+
+    assertThat(finalizer(failing).sweepExpired()).isZero();
+    assertThat(jobs.find(id).orElseThrow().state()).isEqualTo(JobState.READY);
+  }
+
+  @Test
+  void doesNotSweepAnExportThatHasNotExpiredYet() {
+    UUID id = createJob();
+    jobs.completeWindow(id, 0, 10, 1);
+    finalizer().publishFinished();
+
+    assertThat(finalizer().sweepExpired()).isZero();
+  }
+
+  @Test
   void leavesAnUnfinishedJobAlone() {
     createJob();
 
@@ -99,9 +175,7 @@ class JobFinalizerTest {
     jobs.requestCancel(id, "alice-subject");
     var failing = new InMemoryObjectStore().failWith(new RuntimeException("bucket unreachable"));
 
-    int closed =
-        new JobFinalizer(jobs, failing, Duration.ofHours(48), Clock.fixed(NOW, ZoneOffset.UTC))
-            .closeCancelled();
+    int closed = finalizer(failing).closeCancelled();
 
     assertThat(closed).isZero();
     assertThat(jobs.find(id).orElseThrow().state()).isEqualTo(JobState.PLANNED);

@@ -2,7 +2,13 @@ package com.opentooling.loggate.storage;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.io.InputStream;
+import java.time.Duration;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 
@@ -10,11 +16,36 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 public class S3ObjectStore implements ObjectStore {
 
   private final S3Client s3;
+  private final S3Presigner presigner;
   private final String bucket;
 
-  public S3ObjectStore(S3Client s3, String bucket) {
+  public S3ObjectStore(S3Client s3, S3Presigner presigner, String bucket) {
     this.s3 = s3;
+    this.presigner = presigner;
     this.bucket = bucket;
+  }
+
+  @Override
+  public String presignedUrl(String key, Duration validFor) {
+    return presigner
+        .presignGetObject(
+            GetObjectPresignRequest.builder()
+                .signatureDuration(validFor)
+                .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
+                .build())
+        .url()
+        .toString();
+  }
+
+  @Override
+  public InputStream open(String key) {
+    return s3.getObject(GetObjectRequest.builder().bucket(bucket).key(key).build());
+  }
+
+  @Override
+  public long size(String key) {
+    return s3.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build())
+        .contentLength();
   }
 
   @Override

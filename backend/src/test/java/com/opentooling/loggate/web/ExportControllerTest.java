@@ -51,6 +51,7 @@ class ExportControllerTest {
   @MockitoBean private ExportEstimator estimator;
   @MockitoBean private NamespaceAuthorizer authorizer;
   @MockitoBean private ExportService exports;
+  @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
 
   private static OidcLoginRequestPostProcessor alice() {
     return oidcLogin()
@@ -312,6 +313,95 @@ class ExportControllerTest {
 
     mvc.perform(post("/api/exports/" + java.util.UUID.randomUUID() + "/cancel").with(alice()).with(csrf()))
         .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void listsTheFilesOfAFinishedExport() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
+        .thenReturn(java.util.Optional.of(job(id, JobState.READY)));
+    allowEverything(authorization);
+    when(delivery.downloadsFor(any()))
+        .thenReturn(
+            List.of(
+                new com.opentooling.loggate.delivery.DeliveryService.Download(
+                    "manifest.json", "jobs/x/manifest.json", 12, "abc", "https://storage/x")));
+
+    mvc.perform(get("/api/exports/" + id + "/downloads").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].name").value("manifest.json"))
+        .andExpect(jsonPath("$[0].url").value("https://storage/x"));
+  }
+
+  @Test
+  void refusesToDownloadAnExportThatIsNotFinished() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
+        .thenReturn(java.util.Optional.of(job(id, JobState.RUNNING)));
+
+    mvc.perform(get("/api/exports/" + id + "/downloads").with(alice()))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void recheckEntitlementWhenAnArtifactIsRequested() throws Exception {
+    // An artifact must not outlive the access that produced it, so the check
+    // happens at download time and not only at submission.
+    var id = java.util.UUID.randomUUID();
+    when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
+        .thenReturn(java.util.Optional.of(job(id, JobState.READY)));
+    when(authorization.check(any(), any(), any()))
+        .thenReturn(
+            new AccessDecision(Set.of(), Map.of("platform-dev", DenialReason.NOT_A_GROUP_MEMBER)));
+
+    mvc.perform(get("/api/exports/" + id + "/downloads").with(alice()))
+        .andExpect(status().isForbidden());
+
+    verify(delivery, never()).downloadsFor(any());
+  }
+
+  @Test
+  void reportsDownloadsForSomeoneElsesExportAsMissing() throws Exception {
+    when(exports.findFor(any(), any())).thenReturn(java.util.Optional.empty());
+
+    mvc.perform(get("/api/exports/" + java.util.UUID.randomUUID() + "/downloads").with(alice()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void servesADownloadScriptAsAnAttachment() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
+        .thenReturn(java.util.Optional.of(job(id, JobState.READY)));
+    allowEverything(authorization);
+    when(delivery.downloadsFor(any())).thenReturn(List.of());
+    when(delivery.downloadScript(any(), any())).thenReturn("#!/usr/bin/env bash\n");
+
+    mvc.perform(get("/api/exports/" + id + "/download.sh").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                .string("Content-Disposition", "attachment; filename=\"loggate-" + id + "-download.sh\""));
+  }
+
+  @Test
+  void streamsTheArchiveAsAnAttachment() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
+        .thenReturn(java.util.Optional.of(job(id, JobState.READY)));
+    allowEverything(authorization);
+
+    // Streaming responses are dispatched asynchronously, so the result has to
+    // be collected in two steps.
+    var started = mvc.perform(get("/api/exports/" + id + "/archive.zip").with(alice())).andReturn();
+
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(
+                started))
+        .andExpect(status().isOk())
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                .string("Content-Disposition", "attachment; filename=\"loggate-" + id + ".zip\""));
   }
 
   @Test

@@ -25,7 +25,10 @@ public class WebConfig {
 
   @Bean
   ExportController exportController(
-      AuthorizationGate authorization, ExportEstimator estimator, ExportService exports) {
-    return new ExportController(authorization, estimator, exports);
+      AuthorizationGate authorization,
+      ExportEstimator estimator,
+      ExportService exports,
+      com.opentooling.loggate.delivery.DeliveryService delivery) {
+    return new ExportController(authorization, estimator, exports, delivery);
   }
 }

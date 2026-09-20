@@ -39,6 +39,29 @@ public class InMemoryObjectStore implements ObjectStore {
   }
 
   @Override
+  public String presignedUrl(String key, java.time.Duration validFor) {
+    return "https://storage.test/" + key + "?expires=" + validFor.toSeconds();
+  }
+
+  @Override
+  public java.io.InputStream open(String key) {
+    byte[] content = objects.get(key);
+    if (content == null) {
+      throw new IllegalArgumentException("no such object: " + key);
+    }
+    return new java.io.ByteArrayInputStream(content);
+  }
+
+  @Override
+  public long size(String key) {
+    byte[] content = objects.get(key);
+    if (content == null) {
+      throw new IllegalArgumentException("no such object: " + key);
+    }
+    return content.length;
+  }
+
+  @Override
   public void deletePrefix(String prefix) {
     if (failure != null) {
       throw failure;

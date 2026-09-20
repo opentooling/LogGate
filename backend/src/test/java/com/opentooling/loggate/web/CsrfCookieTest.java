@@ -36,6 +36,7 @@ class CsrfCookieTest {
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private ExportEstimator estimator;
   @MockitoBean private com.opentooling.loggate.export.ExportService exports;
+  @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
 
   @Test
   void issuesTheCsrfCookieSoTheSpaCanEchoItBack() throws Exception {

@@ -66,6 +66,13 @@ public final class TestProperties {
 
   public static LogGateProperties.Storage storage() {
     return new LogGateProperties.Storage(
-        "http://minio.test:9000", "us-east-1", "loggate-exports", "key", "secret", true);
+        "http://minio.test:9000",
+        "us-east-1",
+        "loggate-exports",
+        "key",
+        "secret",
+        true,
+        "",
+        Duration.ofMinutes(30));
   }
 }

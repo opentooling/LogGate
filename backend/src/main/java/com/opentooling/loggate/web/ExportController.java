@@ -5,8 +5,10 @@ import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.export.ExportEstimate;
 import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.export.ExportRequest;
+import com.opentooling.loggate.delivery.DeliveryService;
 import com.opentooling.loggate.export.ExportService;
 import com.opentooling.loggate.jobs.ExportJob;
+import com.opentooling.loggate.jobs.JobState;
 import com.opentooling.loggate.security.AuthenticatedUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("/api/exports")
@@ -29,12 +32,17 @@ public class ExportController {
   private final AuthorizationGate authorization;
   private final ExportEstimator estimator;
   private final ExportService exports;
+  private final DeliveryService delivery;
 
   public ExportController(
-      AuthorizationGate authorization, ExportEstimator estimator, ExportService exports) {
+      AuthorizationGate authorization,
+      ExportEstimator estimator,
+      ExportService exports,
+      DeliveryService delivery) {
     this.authorization = authorization;
     this.estimator = estimator;
     this.exports = exports;
+    this.delivery = delivery;
   }
 
   /**
@@ -135,6 +143,69 @@ public class ExportController {
     return cancelled
         ? ResponseEntity.accepted().build()
         : ResponseEntity.status(404).body(new ApiError("no such export, or it already finished"));
+  }
+
+  /** The files of a finished export, each with a short-lived download URL. */
+  @GetMapping("/{id}/downloads")
+  public List<DeliveryService.Download> downloads(
+      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID id) {
+    return delivery.downloadsFor(requireDownloadableJob(principal, id));
+  }
+
+  /** A script that downloads every file and verifies it, for bulk retrieval. */
+  @GetMapping(value = "/{id}/download.sh", produces = "text/x-shellscript")
+  public ResponseEntity<String> downloadScript(
+      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID id) {
+    ExportJob job = requireDownloadableJob(principal, id);
+    return ResponseEntity.ok()
+        .header("Content-Disposition", "attachment; filename=\"loggate-" + id + "-download.sh\"")
+        .body(delivery.downloadScript(job, delivery.downloadsFor(job)));
+  }
+
+  /**
+   * The whole export as one archive, streamed.
+   *
+   * <p>Convenient, and deliberately the second-best option: this path carries
+   * every byte through the control plane, which presigned URLs do not.
+   */
+  @GetMapping(value = "/{id}/archive.zip", produces = "application/zip")
+  public ResponseEntity<StreamingResponseBody> archive(
+      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID id) {
+    // The return type has to name StreamingResponseBody: with a wildcard,
+    // Spring cannot tell this is a stream and tries to serialise it instead.
+    ExportJob job = requireDownloadableJob(principal, id);
+    StreamingResponseBody body = out -> delivery.streamArchive(job, out);
+    return ResponseEntity.ok()
+        .header("Content-Disposition", "attachment; filename=\"loggate-" + id + ".zip\"")
+        .body(body);
+  }
+
+  /**
+   * Resolves a job the caller owns that is actually downloadable.
+   *
+   * <p>Entitlement is re-checked here rather than trusted from submission
+   * time, because an artifact must not outlive the access that produced it.
+   */
+  private ExportJob requireDownloadableJob(OidcUser principal, UUID id) {
+    AuthenticatedUser user = AuthenticatedUser.from(principal);
+    ExportJob job =
+        exports
+            .findFor(user, id)
+            .orElseThrow(
+                () ->
+                    new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "no such export"));
+    if (job.state() != JobState.READY) {
+      throw new org.springframework.web.server.ResponseStatusException(
+          org.springframework.http.HttpStatus.CONFLICT,
+          "this export is " + job.state() + ", so there is nothing to download");
+    }
+    AccessDecision access = authorization.check(user, job.namespaces(), "download");
+    if (!access.isFullyAllowed()) {
+      throw new org.springframework.web.server.ResponseStatusException(
+          org.springframework.http.HttpStatus.FORBIDDEN, "no longer entitled to these namespaces");
+    }
+    return job;
   }
 
   /** @param message what went wrong */

@@ -341,6 +341,104 @@ public class ExportJobRepository {
         finished == null ? null : finished.toInstant());
   }
 
+  /** Records an artifact belonging to a job. Replaces any earlier row for the same key. */
+  public void recordArtifact(
+      UUID jobId, String kind, String key, long sizeBytes, String sha256, Long crc32) {
+    db.sql(
+            """
+            INSERT INTO export_artifact (id, job_id, kind, object_key, size_bytes, sha256, crc32)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (job_id, object_key)
+            DO UPDATE SET size_bytes = EXCLUDED.size_bytes,
+                          sha256 = EXCLUDED.sha256,
+                          crc32 = EXCLUDED.crc32,
+                          created_at = now()
+            """)
+        .param(UUID.randomUUID())
+        .param(jobId)
+        .param(kind)
+        .param(key)
+        .param(sizeBytes)
+        .param(sha256)
+        .param(crc32)
+        .update();
+  }
+
+  /** A job's artifacts, in key order so parts read chronologically. */
+  public List<Artifact> listArtifacts(UUID jobId, String kind) {
+    return db.sql(
+            """
+            SELECT object_key, size_bytes, sha256, crc32 FROM export_artifact
+             WHERE job_id = ? AND kind = ? ORDER BY object_key
+            """)
+        .param(jobId)
+        .param(kind)
+        .query(
+            (rs, rowNum) ->
+                new Artifact(
+                    rs.getString("object_key"),
+                    rs.getLong("size_bytes"),
+                    rs.getString("sha256"),
+                    rs.getObject("crc32", Long.class)))
+        .list();
+  }
+
+  /** The windows of a job, for the manifest.
+   *
+   * @param index window position
+   * @param from window start, inclusive
+   * @param to window end, exclusive
+   * @param entries entries extracted
+   * @param uncompressedBytes uncompressed bytes extracted
+   */
+  public record WindowSummary(
+      int index, Instant from, Instant to, long entries, long uncompressedBytes) {}
+
+  /** @param key object key
+   *  @param sizeBytes stored size
+   *  @param sha256 checksum of the stored bytes
+   *  @param crc32 CRC32 of the stored bytes, for streaming a ZIP without reading them twice */
+  public record Artifact(String key, long sizeBytes, String sha256, Long crc32) {}
+
+  /** Every window of a job, in order. */
+  public List<WindowSummary> windowSummaries(UUID jobId) {
+    return db.sql(
+            """
+            SELECT idx, window_from, window_to, entries_written, bytes_written
+              FROM export_window WHERE job_id = ? ORDER BY idx
+            """)
+        .param(jobId)
+        .query(
+            (rs, rowNum) ->
+                new WindowSummary(
+                    rs.getInt("idx"),
+                    rs.getTimestamp("window_from").toInstant(),
+                    rs.getTimestamp("window_to").toInstant(),
+                    rs.getLong("entries_written"),
+                    rs.getLong("bytes_written")))
+        .list();
+  }
+
+  /** Jobs whose artifacts have outlived their retention. */
+  public List<UUID> expiredJobs() {
+    return db.sql(
+            """
+            SELECT id FROM export_job
+             WHERE state = 'READY' AND expires_at IS NOT NULL AND expires_at < now()
+             ORDER BY expires_at LIMIT 20
+            """)
+        .query(UUID.class)
+        .list();
+  }
+
+  /** Marks a swept job expired. */
+  public void markExpired(UUID jobId) {
+    db.sql(
+            "UPDATE export_job SET state = 'EXPIRED', updated_at = now() WHERE id = ? AND state = 'READY'")
+        .param(jobId)
+        .update();
+  }
+
   /** Used by tests and the sweeper to bound how long artifacts live. */
   public void setExpiry(UUID jobId, Instant expiresAt) {
     db.sql("UPDATE export_job SET expires_at = ? WHERE id = ?")

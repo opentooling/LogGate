@@ -85,9 +85,17 @@ public class ExportWorker {
     String key = PartKeys.part(window.jobId(), window.index());
     var counters = new Counters();
     try {
-      store.put(
+      long storedBytes =
+          store.put(
           key,
-          out -> {
+          rawOut -> {
+            // Checksum the bytes that actually land in storage, so the manifest
+            // describes the artifact rather than what was intended.
+            java.security.MessageDigest digest = sha256();
+            var crc = new java.util.zip.CRC32();
+            var out =
+                new java.security.DigestOutputStream(
+                    new java.util.zip.CheckedOutputStream(rawOut, crc), digest);
             try (EntryWriter writer = new EntryWriter(out, json)) {
               pager.forEachEntry(
                   window.selector(),
@@ -101,10 +109,14 @@ public class ExportWorker {
               counters.entries = writer.entries();
               counters.bytes = writer.uncompressedBytes();
             }
+            counters.sha256 = java.util.HexFormat.of().formatHex(digest.digest());
+            counters.crc32 = crc.getValue();
           });
       // The final tally is checked too, so a window that only exceeds the cap
       // at its very end is still caught.
       checkStillAllowedToRun(window, counters.bytes);
+      jobs.recordArtifact(
+          window.jobId(), "PART", key, storedBytes, counters.sha256, counters.crc32);
       jobs.completeWindow(window.jobId(), window.index(), counters.bytes, counters.entries);
       log.debug(
           "window {} of job {} wrote {} entries ({} bytes)",
@@ -166,8 +178,20 @@ public class ExportWorker {
     jobs.heartbeat(window.jobId(), window.index(), owner, lease);
   }
 
+  private static java.security.MessageDigest sha256() {
+    try {
+      return java.security.MessageDigest.getInstance("SHA-256");
+    } catch (java.security.NoSuchAlgorithmException e) {
+      // SHA-256 is required of every Java platform; if it is missing, nothing
+      // about this process is trustworthy.
+      throw new IllegalStateException("SHA-256 is unavailable", e);
+    }
+  }
+
   private static final class Counters {
     private long entries;
     private long bytes;
+    private String sha256;
+    private long crc32;
   }
 }

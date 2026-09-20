@@ -9,8 +9,9 @@ is stale.
 > **Status.** LogGate is greenfield. Built so far: the control plane skeleton,
 > the schema, the chart and local stack (M1), authentication with namespace
 > authorization and the audit trail (M2), the extraction engine with export
-> sizing (M3), and the queue, quotas and workers that actually run an export
-> (M4). The extraction engine, quotas,
+> sizing (M3), the queue, quotas and workers that actually run an export (M4),
+> and delivery with the UI (M5). What remains is hardening and a verified
+> multi-gigabyte export. The extraction engine, quotas,
 > delivery and the UI are designed and encoded in the schema, but not yet
 > built. Per-component state is in the model's `implementation-status`
 > metadata.
@@ -249,9 +250,21 @@ Delivery is two paths, because one size genuinely does not fit:
   members are already compressed — for the click-and-done case, size-capped into
   volumes because a single 30 GB zip is user-hostile.
 
-The manifest records the selector, the exact time range, per-file line and byte
-counts, SHA-256 checksums, and any gaps. It is what makes an export
-*evidentiary* rather than merely delivered.
+The manifest records the selector, the exact time range, per-part line and byte
+counts and SHA-256 checksums. It is what makes an export *evidentiary* rather
+than merely delivered, and it is written **before** a job is advertised as
+ready — an export nobody can verify is not finished, so a job whose manifest
+cannot be written stays unpublished.
+
+It also states what it cannot guarantee. A range reaching within fifteen
+minutes of the present may be missing entries still held in Loki's ingesters,
+and the manifest says so. Naming a known limit is worth more than implying a
+completeness the export cannot have.
+
+The ZIP entries are `STORE`d rather than deflated, which requires each entry's
+size and CRC *before* its data. That is why the CRC is recorded when the part
+is written rather than recomputed at download time — the alternative is reading
+every part twice to build an archive that would be marginally larger.
 
 ## Quotas
 

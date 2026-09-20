@@ -32,6 +32,8 @@ allowed to be unbounded.
 
 ## Stack
 
+- **Vite + React + TypeScript** UI, built into the backend jar so the app is a
+  single deployable and the SPA is same-origin with its API
 - **Java 25** and **Spring Boot 4.1**, built with **Gradle** (the toolchain is
   downloaded on demand, so no JDK install is required). No component scanning:
   every bean is declared in a configuration class under `config`
@@ -84,6 +86,8 @@ Re-running the script after a code change rebuilds and upgrades in place; pass
 e2e/auth-flow.sh        # authentication and the authorization matrix
 e2e/export-estimate.sh  # export sizing against a real Loki
 e2e/export-run.sh       # an export run to completion, with parts in MinIO
+
+cd ui && npx playwright test   # the UI, through the real login and a real export
 ```
 
 Both drive the real OIDC authorization code flow through Keycloak with a cookie

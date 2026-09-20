@@ -23,7 +23,7 @@
       "unique-id": "loggate-ui",
       "node-type": "webclient",
       "name": "LogGate UI",
-      "description": "Vite + React single-page app served as static assets by the control plane, so it is same-origin with the API and holds a session cookie rather than a token. Users pick namespaces, pod and container selectors and a time range; they never write LogQL. NOTE: not built in this revision (see metadata implementation-status)."
+      "description": "Vite + React single-page app built into the control plane's static resources, so it is same-origin with the API and holds a session cookie rather than a token. Users pick namespaces, pod and container globs and a time range, see a size estimate before committing, watch per-window progress, and collect the files. They never write LogQL. Built."
     },
     {
       "unique-id": "loggate-api",
@@ -48,7 +48,7 @@
       "unique-id": "export-object-store",
       "node-type": "database",
       "name": "Export artifact store",
-      "description": "S3-compatible object storage (MinIO locally) holding the gzip parts, and later the manifest and any assembled ZIP. Parts are written by multipart upload from a 5 MiB buffer, so a multi-gigabyte window never touches heap or disk. Artifacts of a cancelled job are purged. Built; presigned delivery and server-side assembly are not.",
+      "description": "S3-compatible object storage (MinIO locally) holding the gzip parts and the manifest. Parts are written by multipart upload from a 5 MiB buffer, so a multi-gigabyte window never touches heap or disk. Downloads are served by presigned URL directly from storage; artifacts of cancelled and expired jobs are purged. Built.",
       "data-classification": "PII"
     },
     {
@@ -368,9 +368,9 @@
     },
     {
       "implementation-status": {
-        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization. M4 execution: the Postgres work queue with SKIP LOCKED claims and heartbeat leases, workers streaming gzip parts to object storage, mid-window cancellation and byte caps, layered admission quotas, job progress and cancellation endpoints, and the finalizer that publishes finished jobs and purges cancelled ones.",
-        "designed-not-built": "loggate-ui and the delivery path: the manifest, server-side assembly of per-stream files, presigned URLs and the proxied ZIP. Parts exist in object storage; nothing hands them to a user yet.",
-        "milestones": "M1 foundation, M2 auth and namespace authorization, M3 extraction engine, M4 queue, quotas and lifecycle (all done) / M5 delivery and UI / M6 hardening and a verified multi-gigabyte export."
+        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization. M4 execution: the Postgres work queue with SKIP LOCKED claims and heartbeat leases, workers streaming gzip parts to object storage, mid-window cancellation and byte caps, layered admission quotas, job progress and cancellation endpoints, and the finalizer that publishes finished jobs and purges cancelled ones. M5 delivery and UI: the manifest with per-part counts and checksums, presigned download URLs, a generated verify-as-you-go download script, a streamed ZIP that stores rather than re-deflates the parts, the retention sweeper, and the React SPA.",
+        "designed-not-built": "Server-side assembly of the parts into one file per stream with UploadPartCopy. Parts, a manifest and an archive are delivered today; concatenating them server side is an optimisation, not a missing capability.",
+        "milestones": "M1 foundation, M2 auth and namespace authorization, M3 extraction engine, M4 queue, quotas and lifecycle, M5 delivery and UI (all done) / M6 hardening and a verified multi-gigabyte export."
       }
     },
     {
@@ -449,6 +449,15 @@
         "idempotency": "A part's object key is derived from the job and window index alone, never from an attempt or a timestamp, so a window run twice overwrites its part instead of duplicating it. Completing a window twice is counted once.",
         "byte-accounting": "The running total is the job's tally when the window was claimed plus what the window has produced. Under concurrency that under-counts what other windows are writing, so the cap is approached rather than enforced to the byte - the alternative being a shared counter updated per entry.",
         "cancellation": "A flag on the job, noticed between pages. The finalizer closes a cancelled job only once no worker still holds a window, then purges its parts: a cancelled export is not a partial export."
+      }
+    },
+    {
+      "delivery-model": {
+        "two-paths": "Presigned URLs keep tens of gigabytes out of the control plane entirely, which is the only sensible way to move an export that size. A proxied ZIP is the convenience path and is deliberately second best, because every byte passes through the application.",
+        "download-script": "Tens of gigabytes is not a browser activity, so the generated script resumes, retries and checks SHA-256 rather than presenting a page of links to click one at a time.",
+        "archive-encoding": "ZIP entries are STOREd rather than deflated, because the parts are already gzipped. That requires each entry's size and CRC before its data, which is why the CRC is recorded when the part is written rather than recomputed at download time.",
+        "manifest": "Written before a job is advertised as ready: the selector, exact range, per-part counts and checksums, and any caveats. An export nobody can verify is not finished, so a job whose manifest cannot be written stays unpublished.",
+        "caveats": "The manifest states what it cannot guarantee - for instance that a range reaching within fifteen minutes of the present may be missing entries still held in Loki's ingesters. Saying so is worth more than implying a completeness the export cannot have."
       }
     }
   ]

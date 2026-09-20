@@ -52,6 +52,40 @@ dependencies {
   testImplementation 'org.awaitility:awaitility'
 }
 
+// --- UI -------------------------------------------------------------------
+// The SPA is built into the backend's static resources, so the application is
+// one deployable and the UI is same-origin with the API it calls. Jib packages
+// whatever processResources produces, so nothing else needs to know about it.
+def uiDir = file("${rootDir}/ui")
+
+tasks.register('uiInstall', Exec) {
+  description = 'Installs the UI dependencies'
+  workingDir uiDir
+  commandLine 'npm', 'install', '--no-audit', '--no-fund'
+  inputs.file(file("${uiDir}/package.json"))
+  outputs.dir(file("${uiDir}/node_modules"))
+}
+
+tasks.register('uiBuild', Exec) {
+  description = 'Builds the UI into ui/dist'
+  dependsOn 'uiInstall'
+  workingDir uiDir
+  commandLine 'npm', 'run', 'build'
+  inputs.dir(file("${uiDir}/src"))
+  inputs.file(file("${uiDir}/index.html"))
+  inputs.file(file("${uiDir}/vite.config.ts"))
+  inputs.file(file("${uiDir}/tsconfig.json"))
+  inputs.file(file("${uiDir}/package.json"))
+  outputs.dir(file("${uiDir}/dist"))
+}
+
+tasks.named('processResources') {
+  dependsOn 'uiBuild'
+  from("${uiDir}/dist") {
+    into 'static'
+  }
+}
+
 // Jib builds the image straight from the compiled classes and dependencies,
 // so there is no Dockerfile and no container runtime needed to produce one.
 jib {

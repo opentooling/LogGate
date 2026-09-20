@@ -62,6 +62,9 @@ public record LogGateProperties(
    * @param accessKey access key
    * @param secretKey secret key
    * @param pathStyle whether to use path-style addressing, which MinIO needs
+   * @param publicEndpoint endpoint a browser can reach, when it differs from
+   *     the in-cluster one; presigned URLs are signed against this
+   * @param presignedUrlLifetime how long a download link stays valid
    */
   public record Storage(
       @DefaultValue("http://minio.observability.svc.cluster.local:9000") String endpoint,
@@ -69,7 +72,9 @@ public record LogGateProperties(
       @DefaultValue("loggate-exports") String bucket,
       @DefaultValue("") String accessKey,
       @DefaultValue("") String secretKey,
-      @DefaultValue("true") boolean pathStyle) {}
+      @DefaultValue("true") boolean pathStyle,
+      @DefaultValue("") String publicEndpoint,
+      @DefaultValue("30m") Duration presignedUrlLifetime) {}
 
   /**
    * @param enabled whether to resolve namespaces from the Kubernetes API; when
