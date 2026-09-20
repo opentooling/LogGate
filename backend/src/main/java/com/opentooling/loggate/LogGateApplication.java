@@ -2,6 +2,7 @@ package com.opentooling.loggate;
 
 import com.opentooling.loggate.config.AuditConfig;
 import com.opentooling.loggate.config.AuthorizationConfig;
+import com.opentooling.loggate.config.ExportConfig;
 import com.opentooling.loggate.config.KubernetesConfig;
 import com.opentooling.loggate.config.LogGateProperties;
 import com.opentooling.loggate.config.SecurityConfig;
@@ -24,6 +25,7 @@ import org.springframework.context.annotation.Import;
   SecurityConfig.class,
   KubernetesConfig.class,
   AuthorizationConfig.class,
+  ExportConfig.class,
   AuditConfig.class,
   WebConfig.class
 })

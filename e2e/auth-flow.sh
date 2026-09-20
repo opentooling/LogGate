@@ -8,68 +8,12 @@
 # Exits non-zero on the first failed assertion.
 set -uo pipefail
 
-APP="${APP_URL:-http://loggate.localtest.me:8088}"
-PASSWORD="${DEMO_PASSWORD:-loggate}"
+cd "$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=e2e/lib.sh
+source ./lib.sh
+
 NAMESPACE="${APP_NS:-loggate}"
 CONTEXT="${KUBE_CONTEXT:-k3d-loggate}"
-
-pass=0
-fail=0
-
-ok()   { printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }
-bad()  { printf '  \033[31mFAIL\033[0m %s\n     expected: %s\n     actual:   %s\n' "$1" "$2" "$3"; fail=$((fail+1)); }
-check(){ # check <description> <expected> <actual>
-  if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1" "$2" "$3"; fi
-}
-
-# Signs a user in and leaves an authenticated session in the cookie jar.
-login() {
-  local user="$1" jar="$2"
-  rm -f "$jar"
-
-  # 1. The app redirects to Keycloak's authorization endpoint.
-  local login_page
-  login_page="$(curl -sL -c "$jar" -b "$jar" "$APP/oauth2/authorization/keycloak")"
-
-  # 2. Keycloak renders a login form whose action carries the session code.
-  local action
-  action="$(printf '%s' "$login_page" \
-    | grep -o 'action="[^"]*login-actions/authenticate[^"]*"' \
-    | head -1 | sed 's/^action="//; s/"$//' | sed 's/&amp;/\&/g')"
-  if [[ -z "$action" ]]; then
-    # Already authenticated at Keycloak: the SSO session short-circuits the form.
-    return 0
-  fi
-
-  # 3. Submitting it redirects back to the app, which exchanges the code and
-  #    establishes the session cookie in the jar.
-  curl -sL -c "$jar" -b "$jar" \
-    --data-urlencode "username=$user" \
-    --data-urlencode "password=$PASSWORD" \
-    --data-urlencode "credentialId=" \
-    "$action" -o /dev/null
-}
-
-api() { # api <jar> <method> <path> [json body]
-  local jar="$1" method="$2" path="$3" body="${4:-}"
-  local csrf
-  csrf="$(grep -i 'XSRF-TOKEN' "$jar" 2>/dev/null | awk '{print $NF}' | tail -1)"
-  if [[ -n "$body" ]]; then
-    curl -s -b "$jar" -c "$jar" -X "$method" \
-      -H "Content-Type: application/json" \
-      ${csrf:+-H "X-XSRF-TOKEN: $csrf"} \
-      -d "$body" -w '\n%{http_code}' "$APP$path"
-  else
-    curl -s -b "$jar" -c "$jar" -X "$method" \
-      ${csrf:+-H "X-XSRF-TOKEN: $csrf"} \
-      -w '\n%{http_code}' "$APP$path"
-  fi
-}
-
-status() { printf '%s' "$1" | tail -1; }
-body()   { printf '%s' "$1" | sed '$d'; }
-
-jq_get() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
 
 echo
 echo "LogGate authorization end-to-end against $APP"
@@ -150,6 +94,4 @@ check "is refused everything" "403" "$(status "$r")"
 
 rm -f "$ALICE_JAR" "$DAVE_JAR"
 
-echo
-printf 'passed %d, failed %d\n\n' "$pass" "$fail"
-[[ "$fail" -eq 0 ]]
+summary

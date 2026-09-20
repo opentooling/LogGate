@@ -7,6 +7,15 @@ metadata:
     app.kubernetes.io/component: app
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- /*
+    The OAuth2 authorization request is held in an in-memory HTTP session
+    between the redirect to Keycloak and the callback. Two pods serving at once
+    therefore break login, which a rolling update guarantees briefly. Recreate
+    trades a few seconds of downtime for a login flow that always completes.
+    Lift this together with replicaCount once sessions are shared.
+  */}}
+  strategy:
+    type: {{ .Values.updateStrategy }}
   selector:
     matchLabels:
       {{- include "loggate.selectorLabels" . | nindent 6 }}

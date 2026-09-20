@@ -3,7 +3,6 @@ package com.opentooling.loggate.web;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -13,9 +12,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.opentooling.loggate.audit.AuditAction;
-import com.opentooling.loggate.audit.AuditService;
 import com.opentooling.loggate.authz.AccessDecision;
+import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.DenialReason;
 import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.namespaces.NamespaceInfo;
@@ -42,7 +40,8 @@ class NamespaceControllerTest {
   @Autowired private MockMvc mvc;
 
   @MockitoBean private NamespaceAuthorizer authorizer;
-  @MockitoBean private AuditService audit;
+  @MockitoBean private AuthorizationGate authorization;
+  @MockitoBean private com.opentooling.loggate.export.ExportEstimator estimator;
 
   /** A signed-in caller in the platform team. */
   private static OidcLoginRequestPostProcessor alice() {
@@ -79,8 +78,8 @@ class NamespaceControllerTest {
   }
 
   @Test
-  void authorizeReturnsOkAndAuditsNothingWhenEverythingIsAllowed() throws Exception {
-    when(authorizer.authorize(any(), any()))
+  void authorizeReturnsOkWhenEverythingIsAllowed() throws Exception {
+    when(authorization.check(any(), any(), any()))
         .thenReturn(new AccessDecision(Set.of("platform-dev"), Map.of()));
 
     mvc.perform(
@@ -91,13 +90,11 @@ class NamespaceControllerTest {
                 .content("{\"namespaces\":[\"platform-dev\"]}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.allowed[0]").value("platform-dev"));
-
-    verify(audit, never()).record(anyString(), any(), any(), anyString());
   }
 
   @Test
-  void authorizeReturnsForbiddenAndAuditsWhenAnythingIsRefused() throws Exception {
-    when(authorizer.authorize(any(), any()))
+  void authorizeReturnsForbiddenWhenAnythingIsRefused() throws Exception {
+    when(authorization.check(any(), any(), any()))
         .thenReturn(
             new AccessDecision(
                 Set.of(), Map.of("payments-dev", DenialReason.NOT_A_GROUP_MEMBER)));
@@ -111,8 +108,9 @@ class NamespaceControllerTest {
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.denied['payments-dev']").value("NOT_A_GROUP_MEMBER"));
 
-    verify(audit)
-        .record(eq("alice-subject"), eq(AuditAction.NAMESPACE_ACCESS_DENIED), any(), anyString());
+    // Auditing lives in AuthorizationGate, so the controller only has to pass
+    // the caller and their address through.
+    verify(authorization).check(any(), eq(List.of("payments-dev")), anyString());
   }
 
   @Test

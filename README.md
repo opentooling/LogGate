@@ -81,12 +81,14 @@ Re-running the script after a code change rebuilds and upgrades in place; pass
 ### End-to-end checks
 
 ```bash
-e2e/auth-flow.sh
+e2e/auth-flow.sh        # authentication and the authorization matrix
+e2e/export-estimate.sh  # export sizing against a real Loki
 ```
 
-Drives the real OIDC authorization code flow through Keycloak with a cookie
-jar and asserts the authorization matrix against the deployed stack, including
-the cases that must be **refused** and the audit rows they produce.
+Both drive the real OIDC authorization code flow through Keycloak with a cookie
+jar and assert against the deployed stack, including the cases that must be
+**refused** and the audit rows they produce. `export-estimate.sh` needs seeded
+logs, so run `deploy/local/seed-logs.sh` first and give Loki a minute.
 
 ### Demo users
 

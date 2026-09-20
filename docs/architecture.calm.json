@@ -29,7 +29,7 @@
       "unique-id": "loggate-api",
       "node-type": "service",
       "name": "LogGate control plane",
-      "description": "Spring Boot 4.1 / Java 25 service. Terminates the OIDC login as a backend-for-frontend, resolves which namespaces the caller may read, generates the LogQL selector server-side, sizes the request against Loki's volume API, admits or rejects it against quota, plans the job into time windows, and serves artifact downloads. Authentication, namespace authorization and the audit trail are built; everything from sizing onwards is not. Beans are declared explicitly in configuration classes under config, with component scanning switched off, so the object graph is readable in one place."
+      "description": "Spring Boot 4.1 / Java 25 service. Terminates the OIDC login as a backend-for-frontend, resolves which namespaces the caller may read, generates the LogQL selector server-side, sizes the request against Loki's volume API and plans it into windows, and will serve artifact downloads. Authentication, namespace authorization, the audit trail and export sizing are built; the worker, quotas and artifacts are not. Beans are declared explicitly in configuration classes under config, with component scanning switched off."
     },
     {
       "unique-id": "loggate-worker",
@@ -362,14 +362,15 @@
         "date": "2026-09-20",
         "id-rule": "unique-id = slugified component name (e.g. loggate-worker); stable across runs so reconcile is a diff, not a rewrite",
         "note": "Greenfield. This model is the TARGET architecture; per-node build state is in implementation-status below and flagged in node descriptions, following the convention in the METAL-X model.",
-        "reconciled": "2026-09-20 after M2: no node or relationship structure changed - authentication, the namespace watch and the audit trail were already modelled as relationships. The drift was entirely in what is built versus designed, plus two deployment facts worth recording: the OIDC issuer URL must be byte-identical for browser and application, and beans are wired explicitly rather than scanned."
+        "reconciled": "2026-09-20 after M2: no node or relationship structure changed - authentication, the namespace watch and the audit trail were already modelled as relationships. The drift was entirely in what is built versus designed, plus two deployment facts worth recording: the OIDC issuer URL must be byte-identical for browser and application, and beans are wired explicitly rather than scanned.",
+        "reconciled-2026-09-20-m3": "Structure unchanged again: the control-plane-to-loki-volume and worker-to-loki-query relationships already described what M3 implemented. Two constraints were discovered by building it and are recorded in extraction-model and known-limitations."
       }
     },
     {
       "implementation-status": {
-        "built": "M1 foundation: application bootstrap, Liquibase schema (export_job, export_window, export_artifact, audit_event), actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer, the audit trail, and e2e/auth-flow.sh driving the real authorization code flow.",
-        "designed-not-built": "loggate-ui, loggate-worker, the quota engine, the extraction engine and every artifact path. These are modelled because the design is settled and the schema already encodes it, not because code exists.",
-        "milestones": "M1 foundation (done) / M2 auth and namespace authorization (done) / M3 extraction engine / M4 queue, quotas and lifecycle / M5 delivery and UI / M6 hardening and a verified multi-gigabyte export."
+        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization.",
+        "designed-not-built": "loggate-ui, loggate-worker, the quota engine and every artifact path. The engine produces entries; nothing yet writes them to object storage or runs windows concurrently under a lease.",
+        "milestones": "M1 foundation (done) / M2 auth and namespace authorization (done) / M3 extraction engine (done) / M4 queue, quotas and lifecycle / M5 delivery and UI / M6 hardening and a verified multi-gigabyte export."
       }
     },
     {
@@ -378,7 +379,9 @@
         "why-idempotent-windows": "Determinism per window buys crash recovery, at-least-once workers with exactly-once artifacts, accurate progress as windows_done/windows_total, and parallelism with no coordination between workers \u2014 from one property rather than four mechanisms.",
         "boundary-dedup": "Loki's start bound is inclusive and several entries can share a nanosecond, so paging forward by last-timestamp duplicates the entries at that instant. The pager carries forward the identities of entries at the page's maximum timestamp and skips them next page. This is the highest-risk code in the system and carries the heaviest test weight.",
         "back-pressure": "Bounded concurrency per job and globally, reduced additively on sustained 429s. A large export slows itself instead of starving Grafana.",
-        "quota-abort": "Bytes are counted as they are written, so a job exceeding its cap is killed mid-flight rather than discovered afterwards. This is the capability that decided the architecture (see rejected-options)."
+        "quota-abort": "Bytes are counted as they are written, so a job exceeding its cap is killed mid-flight rather than discovered afterwards. This is the capability that decided the architecture (see rejected-options).",
+        "page-limit-constraint": "The query page limit must exceed the number of entries that can share one nanosecond. Loki's API has no offset, so a query starting at that nanosecond returns the same first `limit` entries every time and paging cannot advance. The pager detects that it has stopped advancing and fails loudly rather than silently truncating the export.",
+        "selector-generation": "Pod and container filters are globs: every character except * and ? is escaped into a literal. That removes LogQL injection and regex denial-of-service as categories rather than defending against them case by case. Sizing uses the stream selector without the line filter, because a filter reduces what is written but not what Loki reads, and the quota should be set against what is read."
       }
     },
     {
@@ -432,6 +435,11 @@
         "rule": "No stereotype annotations. Every bean is declared with @Bean in a configuration class under com.opentooling.loggate.config, and the application class uses @SpringBootConfiguration with @Import rather than @SpringBootApplication, so nothing is component-scanned.",
         "why": "The object graph is readable in one place instead of being inferred from annotations spread across packages.",
         "exception": "Controllers keep @RestController because request mapping is derived from it, but they are registered as beans in WebConfig like everything else."
+      }
+    },
+    {
+      "known-limitations": {
+        "single-api-replica": "The OAuth2 authorization request is held in an in-memory HTTP session between the redirect to Keycloak and the callback, so two API pods serving at once break login. replicaCount is pinned to 1 and the deployment strategy is Recreate, which trades a few seconds of downtime on upgrade for a login flow that always completes. Lifting this needs a shared session store; Spring Session JDBC was tried and rejected because Spring Security 7's authorization request is not Java-serializable, so the session store fails to persist it. A cookie-based authorization request repository is the likely fix. Scheduled for M6."
       }
     }
   ]

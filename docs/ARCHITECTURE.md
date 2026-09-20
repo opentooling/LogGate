@@ -7,8 +7,9 @@ is right about structure and this document is right about intent — fix whichev
 is stale.
 
 > **Status.** LogGate is greenfield. Built so far: the control plane skeleton,
-> the schema, the chart and local stack (M1), and authentication with namespace
-> authorization and the audit trail (M2). The extraction engine, quotas,
+> the schema, the chart and local stack (M1), authentication with namespace
+> authorization and the audit trail (M2), and the extraction engine with export
+> sizing (M3). The extraction engine, quotas,
 > delivery and the UI are designed and encoded in the schema, but not yet
 > built. Per-component state is in the model's `implementation-status`
 > metadata.
@@ -159,6 +160,16 @@ reliability comes from:
 | Free parallelism | Workers need no coordination, because windows do not overlap |
 | Mid-flight quotas | Bytes are counted as written, so a cap aborts the job rather than being discovered afterwards |
 
+### The page limit is a real constraint
+
+The page limit must exceed the number of entries that can share one nanosecond.
+Loki's API has no offset, so a query starting at that nanosecond returns the
+same first `limit` entries every time — if they fill a page, there is no way to
+reach the rest. The pager detects that it has stopped advancing and **fails**
+rather than silently truncating the export. At the default limit of 5000 this
+needs 5000 lines in the same nanosecond from one selector, which is
+implausible; it is nonetheless a real constraint rather than a theoretical one.
+
 ### The nanosecond boundary
 
 This is the highest-risk code in the system and deserves naming explicitly.
@@ -181,6 +192,18 @@ Concurrency is bounded per job and globally, and reduced additively on sustained
 429s. Exports are pinned to their own Loki tenant or read pool. The intent is
 that a badly-sized export degrades *itself* and never becomes an incident for
 the people using Grafana.
+
+## Generating the selector
+
+Callers never supply LogQL. Pod and container filters are **globs**: every
+character except `*` and `?` is escaped into a literal. That removes LogQL
+injection and regex denial-of-service as *categories*, rather than defending
+against them case by case, and it is why the structured-input decision earns
+its keep.
+
+Sizing uses the stream selector **without** the line filter. A filter reduces
+what gets written but not what Loki reads, so the honest number to quota
+against is the unfiltered one.
 
 ## Artifacts and delivery
 
@@ -257,6 +280,23 @@ tested against.
 Images are built with Jib from compiled classes: no Dockerfile, no container
 runtime in the build, and a fixed creation time so an unchanged tree produces a
 byte-identical image.
+
+## Known limitation: one API replica
+
+The OAuth2 authorization request is held in an in-memory HTTP session between
+the redirect to Keycloak and the callback. Two API pods serving at once
+therefore break login — which a rolling update guarantees briefly, and which
+cost real debugging time to pin down because it looks like a flaky test.
+
+So `replicaCount` is pinned to 1 and the deployment strategy is `Recreate`,
+trading a few seconds of downtime on upgrade for a login flow that always
+completes.
+
+Lifting this needs shared session state. Spring Session JDBC was tried and
+rejected: Spring Security 7's authorization request is not Java-serializable,
+so the session store fails to persist it and login breaks differently. A
+cookie-based authorization request repository is the likely fix. Scheduled for
+M6.
 
 ## Bean wiring
 

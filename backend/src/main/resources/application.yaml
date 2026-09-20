@@ -34,6 +34,16 @@ spring:
 
 # How a namespace's owning team, and that team's group, are resolved.
 loggate:
+  loki:
+    url: ${LOKI_URL:http://loki-gateway.observability.svc.cluster.local}
+    tenant-id: ${LOKI_TENANT_ID:}
+    query-limit: ${LOKI_QUERY_LIMIT:5000}
+    timeout: ${LOKI_TIMEOUT:60s}
+  windows:
+    target-bytes: ${WINDOW_TARGET_BYTES:268435456}
+    min-duration: ${WINDOW_MIN_DURATION:1m}
+    max-duration: ${WINDOW_MAX_DURATION:1h}
+    max-count: ${WINDOW_MAX_COUNT:5000}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}

@@ -1,8 +1,7 @@
 package com.opentooling.loggate.web;
 
-import com.opentooling.loggate.audit.AuditAction;
-import com.opentooling.loggate.audit.AuditService;
 import com.opentooling.loggate.authz.AccessDecision;
+import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.namespaces.NamespaceInfo;
 import com.opentooling.loggate.security.AuthenticatedUser;
@@ -10,7 +9,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -26,11 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class NamespaceController {
 
   private final NamespaceAuthorizer authorizer;
-  private final AuditService audit;
+  private final AuthorizationGate authorization;
 
-  public NamespaceController(NamespaceAuthorizer authorizer, AuditService audit) {
+  public NamespaceController(NamespaceAuthorizer authorizer, AuthorizationGate authorization) {
     this.authorizer = authorizer;
-    this.audit = audit;
+    this.authorization = authorization;
   }
 
   /** The caller, and what they are entitled to. */
@@ -59,17 +57,9 @@ public class NamespaceController {
       @Valid @RequestBody AuthorizeRequest request,
       HttpServletRequest httpRequest) {
     AuthenticatedUser user = AuthenticatedUser.from(principal);
-    AccessDecision decision = authorizer.authorize(user.groups(), request.namespaces());
-
+    AccessDecision decision =
+        authorization.check(user, request.namespaces(), ClientAddress.of(httpRequest));
     if (!decision.isFullyAllowed()) {
-      audit.record(
-          user.subject(),
-          AuditAction.NAMESPACE_ACCESS_DENIED,
-          Map.of(
-              "requested", request.namespaces(),
-              "denied", decision.denied(),
-              "groups", user.groups()),
-          ClientAddress.of(httpRequest));
       return ResponseEntity.status(403).body(decision);
     }
     return ResponseEntity.ok(decision);

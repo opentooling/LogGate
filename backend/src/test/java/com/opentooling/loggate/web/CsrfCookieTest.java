@@ -5,8 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.opentooling.loggate.audit.AuditService;
+import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.NamespaceAuthorizer;
+import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,8 @@ class CsrfCookieTest {
   @Autowired private MockMvc mvc;
 
   @MockitoBean private NamespaceAuthorizer authorizer;
-  @MockitoBean private AuditService audit;
+  @MockitoBean private AuthorizationGate authorization;
+  @MockitoBean private ExportEstimator estimator;
 
   @Test
   void issuesTheCsrfCookieSoTheSpaCanEchoItBack() throws Exception {
