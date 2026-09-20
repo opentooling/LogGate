@@ -84,6 +84,21 @@ tasks.register('uiBuild', Exec) {
   outputs.dir(file("${uiDir}/dist"))
 }
 
+tasks.register('uiTest', Exec) {
+  description = 'Runs the UI unit tests'
+  dependsOn 'uiInstall'
+  workingDir uiDir
+  commandLine 'npx', 'vitest', 'run'
+  inputs.dir(file("${uiDir}/src"))
+  inputs.file(file("${uiDir}/package.json"))
+  // Exec tasks have no natural output; this keeps Gradle from caching a pass.
+  outputs.upToDateWhen { false }
+}
+
+tasks.named('check') {
+  dependsOn 'uiTest'
+}
+
 tasks.named('processResources') {
   dependsOn 'uiBuild'
   from("${uiDir}/dist") {

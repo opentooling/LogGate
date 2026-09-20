@@ -4,9 +4,9 @@ import com.opentooling.loggate.loki.LogEntry;
 import com.opentooling.loggate.loki.LokiClient;
 import com.opentooling.loggate.loki.LokiException;
 import com.opentooling.loggate.loki.QueryPage;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -18,10 +18,17 @@ import java.util.function.Consumer;
  * the entries at that timestamp again on the next page. At a few hundred lines
  * per second per pod that is not a rare edge case - it is most pages.
  *
- * <p>So the pager carries forward the identity of every entry seen at the
- * page's final timestamp and skips exactly those next time. It advances only by
- * timestamp, never by a count, because a count would silently skip entries the
- * server ordered differently.
+ * <p>So the pager carries forward how many times it has already emitted each
+ * entry at the page's final timestamp, and skips exactly that many next time.
+ * It advances only by timestamp, never by a count, because a count would
+ * silently skip entries the server ordered differently.
+ *
+ * <p>Counting occurrences rather than remembering a set matters: two entries in
+ * one stream can be genuinely identical - same nanosecond, same text - and a
+ * set cannot tell the second from a repeat of the first, so it drops it. That
+ * showed up as a 0.03% shortfall against Loki's own count on dense data, which
+ * is exactly the kind of loss nobody would notice until they needed the line
+ * that went missing.
  *
  * <p>Nothing accumulates: entries are handed to the sink as they arrive, and
  * the only state kept between pages is the identity set for one nanosecond.
@@ -56,7 +63,7 @@ public class WindowPager {
   public long forEachEntry(String selector, ExportWindow window, Consumer<LogEntry> sink) {
     long start = window.fromNanos();
     long boundaryNanos = Long.MIN_VALUE;
-    Set<LogEntry.EntryKey> seenAtBoundary = new HashSet<>();
+    Map<LogEntry.EntryKey, Integer> emittedAtBoundary = new HashMap<>();
     long emitted = 0;
 
     while (true) {
@@ -69,14 +76,25 @@ public class WindowPager {
 
       long pageMaxNanos = maxTimestamp(entries);
       long emittedFromPage = 0;
+      // How many occurrences of each entry are still owed a skip on this page.
+      Map<LogEntry.EntryKey, Integer> toSkip = new HashMap<>(emittedAtBoundary);
+      Map<LogEntry.EntryKey, Integer> emittedAtPageMax = new HashMap<>();
+
       for (LogEntry entry : entries) {
-        if (entry.timestampNanos() == boundaryNanos && seenAtBoundary.contains(entry.key())) {
-          // Already emitted on a previous page: this is the inclusive-start overlap.
-          continue;
+        if (entry.timestampNanos() == boundaryNanos) {
+          Integer remaining = toSkip.get(entry.key());
+          if (remaining != null && remaining > 0) {
+            // Already emitted on a previous page: the inclusive-start overlap.
+            toSkip.put(entry.key(), remaining - 1);
+            continue;
+          }
         }
         sink.accept(entry);
         emitted++;
         emittedFromPage++;
+        if (entry.timestampNanos() == pageMaxNanos) {
+          emittedAtPageMax.merge(entry.key(), 1, Integer::sum);
+        }
       }
 
       if (!page.isFull()) {
@@ -84,11 +102,11 @@ public class WindowPager {
         return emitted;
       }
 
-      Set<LogEntry.EntryKey> atPageMax = keysAt(entries, pageMaxNanos);
       if (pageMaxNanos == boundaryNanos) {
         // The page did not advance in time: every entry shares the boundary
-        // nanosecond. Remember the wider set and try again.
-        seenAtBoundary.addAll(atPageMax);
+        // nanosecond. Remember the extra occurrences and try again.
+        Map<LogEntry.EntryKey, Integer> carried = emittedAtBoundary;
+        emittedAtPageMax.forEach((key, count) -> carried.merge(key, count, Integer::sum));
         if (emittedFromPage == 0) {
           // A full page containing nothing new means more entries share this
           // nanosecond than a page can hold, so paging cannot advance. Failing
@@ -100,7 +118,7 @@ public class WindowPager {
         }
       } else {
         boundaryNanos = pageMaxNanos;
-        seenAtBoundary = atPageMax;
+        emittedAtBoundary = emittedAtPageMax;
       }
       start = boundaryNanos;
     }
@@ -114,13 +132,5 @@ public class WindowPager {
     return max;
   }
 
-  private static Set<LogEntry.EntryKey> keysAt(List<LogEntry> entries, long nanos) {
-    Set<LogEntry.EntryKey> keys = new HashSet<>();
-    for (LogEntry entry : entries) {
-      if (entry.timestampNanos() == nanos) {
-        keys.add(entry.key());
-      }
-    }
-    return keys;
-  }
+
 }

@@ -207,6 +207,19 @@ Sizing uses the stream selector **without** the line filter. A filter reduces
 what gets written but not what Loki reads, so the honest number to quota
 against is the unfiltered one.
 
+That leaves a gap worth closing rather than explaining away: the number a user
+sees would then ignore their filter entirely, and they would reasonably read it
+as their download size. Loki's index cannot help — it knows how big each stream
+is and nothing about what is inside the lines — so the filter's selectivity is
+measured by reading one short window with and without the filter and applying
+the ratio to the range.
+
+The sample is taken from the **middle** of the range. The end is the least
+representative part of it: traffic may have just changed, and the newest
+entries may not have flushed. It is an extrapolation from one window and is
+labelled as one. Admission still judges the unfiltered number, because that is
+what Loki actually has to do.
+
 ## Running an export
 
 Windows are claimed with `FOR UPDATE SKIP LOCKED`, so many workers take work

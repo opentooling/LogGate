@@ -15,6 +15,11 @@ updateStrategy: RollingUpdate
 # uid/gid and let the restricted-v2 SCC assign them.
 openShift: false
 
+# -- How long startup may take before the pod is considered broken, as
+# failureThreshold x 3 seconds.
+startupProbe:
+  failureThreshold: 100
+
 resources:
   requests:
     cpu: 100m
@@ -127,6 +132,25 @@ keycloak:
       memory: 512Mi
     limits:
       memory: 1Gi
+
+# -- Network policy. Off by default because it depends on the cluster
+# enforcing NetworkPolicy at all; on where it does, it bounds what a
+# compromised LogGate could reach.
+networkPolicy:
+  enabled: false
+  ingressFrom:
+    - namespaceSelector:
+        kubernetes.io/metadata.name: ingress-nginx
+  # Where the application is allowed to connect. Loki, object storage, the
+  # identity provider and the Kubernetes API all live here.
+  egressTo: []
+  #  - to:
+  #      - namespaceSelector:
+  #          matchLabels:
+  #            kubernetes.io/metadata.name: observability
+  #    ports:
+  #      - port: 3100
+  #        protocol: TCP
 
 # -- Extra environment variables for the app container, e.g. to raise a log
 # level without rebuilding the image.

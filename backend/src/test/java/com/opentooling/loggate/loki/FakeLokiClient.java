@@ -63,6 +63,21 @@ public class FakeLokiClient implements LokiClient {
     return List.copyOf(selectorsSeen);
   }
 
+  private final Map<String, Long> samples = new LinkedHashMap<>();
+
+  /** Sets what a sample of {@code query} reports. */
+  public FakeLokiClient sample(String query, long bytes) {
+    samples.put(query, bytes);
+    return this;
+  }
+
+  @Override
+  public java.util.OptionalLong sampleBytes(
+      String query, Instant at, java.time.Duration window) {
+    Long bytes = samples.get(query);
+    return bytes == null ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(bytes);
+  }
+
   @Override
   public VolumeEstimate volume(String selector, Instant from, Instant to) {
     selectorsSeen.add(selector);

@@ -78,6 +78,7 @@ class ExportControllerTest {
                 Instant.parse("2026-09-20T00:00:00Z"),
                 Instant.parse("2026-09-21T00:00:00Z"),
                 44_040_192L,
+                null,
                 Map.of("platform-dev", 44_040_192L),
                 900,
                 96));

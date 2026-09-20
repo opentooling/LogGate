@@ -37,18 +37,30 @@ loki:
 
 storage:
   endpoint: http://minio.observability.svc.cluster.local:9000
+  # What a browser can reach. Presigned URLs are signed against this, so it
+  # must match the host the user opens them from.
+  publicEndpoint: http://s3.localtest.me:8088
   bucket: loggate-exports
   accessKey: loggate
   secretKey: loggate-local-dev
 
 quotas:
-  # Small local ranges, so a mistake is cheap to notice.
+  # Small local ranges, so a mistake is cheap to notice - but large enough to
+  # admit a genuinely big export for the multi-gigabyte verification.
   maxRange: 2d
-  maxEstimatedBytes: 5368709120
+  maxEstimatedBytes: 21474836480
 
 resources:
   requests:
     cpu: 50m
-    memory: 384Mi
+    memory: 512Mi
   limits:
-    memory: 1Gi
+    # Two replicas, each running workers that hold a 5 MiB upload buffer plus
+    # gzip and JSON buffers per window. 1Gi was enough until a real multi-
+    # gigabyte export ran, at which point the pods were killed.
+    memory: 1536Mi
+
+execution:
+  # Fewer workers per pod locally: with two replicas that is still four in
+  # flight, which is plenty for a laptop-sized Loki.
+  workers: 2

@@ -45,6 +45,7 @@ export type Estimate = {
   from: string;
   to: string;
   estimatedBytes: number;
+  filteredBytes: number | null;
   bytesByNamespace: Record<string, number>;
   windowSeconds: number;
   windowCount: number;
@@ -144,23 +145,3 @@ export const api = {
   cancel: (id: string) => call<void>(`/api/exports/${id}/cancel`, { method: "POST" }),
   downloads: (id: string) => call<Download[]>(`/api/exports/${id}/downloads`),
 };
-
-/** Bytes as something a person can read at a glance. */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-}
-
-/** A duration in whole units, for window sizes. */
-export function formatDuration(seconds: number): string {
-  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
-  if (seconds % 60 === 0) return `${seconds / 60}m`;
-  return `${seconds}s`;
-}

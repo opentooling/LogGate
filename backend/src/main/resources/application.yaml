@@ -67,6 +67,7 @@ loggate:
     access-key: ${S3_ACCESS_KEY:}
     secret-key: ${S3_SECRET_KEY:}
     path-style: ${S3_PATH_STYLE:true}
+    public-endpoint: ${S3_PUBLIC_ENDPOINT:}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}

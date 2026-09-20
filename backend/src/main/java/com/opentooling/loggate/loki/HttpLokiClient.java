@@ -88,6 +88,27 @@ public class HttpLokiClient implements LokiClient {
   }
 
   @Override
+  public java.util.OptionalLong sampleBytes(
+      String query, Instant at, java.time.Duration window) {
+    Map<String, Object> params = new LinkedHashMap<>();
+    // bytes_over_time is evaluated by Loki over the sample window only, so the
+    // cost is bounded by the window rather than by the export's whole range.
+    params.put("query", "sum(bytes_over_time(%s[%ds]))".formatted(query, window.toSeconds()));
+    params.put("time", nanos(at));
+
+    JsonNode body = get("/loki/api/v1/query", params);
+    for (JsonNode result : body.path("data").path("result")) {
+      JsonNode value = result.path("value");
+      if (value.isArray() && value.size() >= 2) {
+        return java.util.OptionalLong.of(parseBytes(value.get(1).asString()));
+      }
+    }
+    // No series at all means the sample window held nothing, which says
+    // nothing about the filter either way.
+    return java.util.OptionalLong.empty();
+  }
+
+  @Override
   public QueryPage queryRange(String selector, Instant from, Instant to, int limit) {
     Map<String, Object> params = new LinkedHashMap<>();
     params.put("query", selector);

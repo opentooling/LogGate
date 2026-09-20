@@ -67,6 +67,48 @@ class HttpLokiClientTest {
   }
 
   @Test
+  void samplesHowManyBytesAQueryMatches() {
+    server
+        .expect(requestTo(Matchers.containsString("/loki/api/v1/query")))
+        // The query arrives percent-encoded, so match on its parts rather than
+        // on a literal that would only ever match after decoding.
+        .andExpect(requestTo(Matchers.containsString("bytes_over_time")))
+        .andExpect(requestTo(Matchers.containsString("300s")))
+        .andRespond(
+            withSuccess(
+                "{\"data\":{\"result\":[{\"metric\":{},\"value\":[1,\"4096\"]}]}}",
+                MediaType.APPLICATION_JSON));
+
+    assertThat(
+            client("")
+                .sampleBytes("{namespace=\"platform-dev\"}", FROM, Duration.ofMinutes(5)))
+        .hasValue(4096);
+    server.verify();
+  }
+
+  @Test
+  void reportsNoSampleWhenTheWindowHeldNothing() {
+    // An empty window cannot support a conclusion about a filter.
+    server
+        .expect(requestTo(Matchers.containsString("/loki/api/v1/query")))
+        .andRespond(withSuccess("{\"data\":{\"result\":[]}}", MediaType.APPLICATION_JSON));
+
+    assertThat(client("").sampleBytes("{}", FROM, Duration.ofMinutes(5))).isEmpty();
+  }
+
+  @Test
+  void skipsASampleRowThatCarriesNoValue() {
+    server
+        .expect(requestTo(Matchers.containsString("/loki/api/v1/query")))
+        .andRespond(
+            withSuccess(
+                "{\"data\":{\"result\":[{\"metric\":{},\"value\":\"nonsense\"},{\"metric\":{},\"value\":[1,\"77\"]}]}}",
+                MediaType.APPLICATION_JSON));
+
+    assertThat(client("").sampleBytes("{}", FROM, Duration.ofMinutes(5))).hasValue(77);
+  }
+
+  @Test
   void treatsAnEmptyVolumeResultAsNothing() {
     server
         .expect(requestTo(Matchers.containsString("/index/volume")))

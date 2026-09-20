@@ -20,8 +20,13 @@ resources:
     cpu: 50m
     memory: 256Mi
 
+# The S3 API needs its own ingress, not just the console: presigned download
+# URLs are opened by the user's browser, so the endpoint they are signed
+# against has to be one a browser can actually reach.
 ingress:
-  enabled: false
+  enabled: true
+  hosts:
+    - s3.localtest.me
 
 consoleIngress:
   enabled: true

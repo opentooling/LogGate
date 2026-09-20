@@ -35,7 +35,7 @@ class QuotaGuardTest {
   }
 
   private static ExportEstimate estimate(long bytes) {
-    return new ExportEstimate("{}", FROM, FROM.plusSeconds(3600), bytes, Map.of(), 900, 4);
+    return new ExportEstimate("{}", FROM, FROM.plusSeconds(3600), bytes, null, Map.of(), 900, 4);
   }
 
   @Test
