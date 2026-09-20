@@ -16,3 +16,7 @@ dist/
 .env
 .env.local
 deploy/local/.last-tag
+
+# Playwright
+/ui/playwright-report/
+/ui/test-results/
