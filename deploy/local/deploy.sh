@@ -19,11 +19,28 @@ HOST_PORT="${HOST_PORT:-8088}"
 # --- cluster ----------------------------------------------------------------
 if ! k3d cluster list --output json | grep -q "\"name\":\"$CLUSTER\""; then
   log "Creating k3d cluster '$CLUSTER'"
-  k3d cluster create "$CLUSTER" \
-    --agents 1 \
-    --port "${HOST_PORT}:80@loadbalancer" \
-    --k3s-arg "--disable=traefik@server:0" \
-    --wait
+  # Podman occasionally cannot serve a just-started container's journald logs
+  # ("unable to open a handle to the library"), which k3d reads to detect that
+  # k3s is up. It is a startup race, not a misconfiguration, so retry rather
+  # than fail the whole deploy.
+  created=0
+  for attempt in 1 2 3; do
+    if k3d cluster create "$CLUSTER" \
+      --agents 1 \
+      --port "${HOST_PORT}:80@loadbalancer" \
+      --k3s-arg "--disable=traefik@server:0" \
+      --wait; then
+      created=1
+      break
+    fi
+    log "Cluster creation attempt $attempt failed; cleaning up and retrying"
+    k3d cluster delete "$CLUSTER" >/dev/null 2>&1 || true
+    sleep 5
+  done
+  if [[ "$created" != "1" ]]; then
+    echo "Cluster creation failed after 3 attempts" >&2
+    exit 1
+  fi
 else
   log "Reusing existing k3d cluster '$CLUSTER'"
 fi
