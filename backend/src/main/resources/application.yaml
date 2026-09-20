@@ -12,9 +12,40 @@ spring:
       maximum-pool-size: ${DATABASE_POOL_SIZE:10}
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: ${OIDC_CLIENT_ID:loggate}
+            client-secret: ${OIDC_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            # Explicit by default in deployment: behind an ingress the public
+            # URL cannot be reliably inferred from the request, and a mismatched
+            # redirect_uri is rejected by the provider.
+            redirect-uri: ${OIDC_REDIRECT_URI:{baseUrl}/login/oauth2/code/{registrationId}}
+            scope: openid,profile,email
+        provider:
+          keycloak:
+            # Resolved at startup, so the application needs the issuer reachable
+            # to boot. The chart waits for Keycloak before starting the app.
+            issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8081/realms/loggate}
+            user-name-attribute: preferred_username
+
+# How a namespace's owning team, and that team's group, are resolved.
+loggate:
+  namespaces:
+    enabled: ${NAMESPACES_ENABLED:true}
+    label-key: ${TEAM_LABEL_KEY:xyz.com/team}
+    group-template: ${TEAM_GROUP_TEMPLATE:ad-{team}-{env}}
+    environment: ${ENVIRONMENT:dev}
 
 server:
   shutdown: graceful
+  # The app sits behind an ingress, so the externally visible scheme, host and
+  # port come from X-Forwarded-*. Without this the OAuth2 redirect_uri is built
+  # from the internal request and will not match what is registered.
+  forward-headers-strategy: framework
   error:
     include-message: never
     include-stacktrace: never

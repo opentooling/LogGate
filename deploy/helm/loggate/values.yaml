@@ -56,7 +56,84 @@ externalDatabase:
 secrets:
   databasePassword: ""
 
-# -- Upstream Loki read endpoint. Wired up in M2/M3.
+# -- Namespace to team to group resolution. Must match what the identity
+# provider actually issues: the template renders the group name that owns a
+# namespace labelled with `labelKey`.
+namespaces:
+  enabled: true
+  labelKey: xyz.com/team
+  groupTemplate: "ad-{team}-{env}"
+  environment: dev
+
+# -- OIDC. Point issuerUri at an existing Keycloak in production and leave
+# keycloak.enabled false.
+oidc:
+  issuerUri: ""
+  # Public callback URL. Derived from the ingress host when empty; set it
+  # explicitly whenever the browser-facing URL differs from the ingress host.
+  redirectUri: ""
+  clientId: loggate
+  # Leave empty to reuse or generate one, like the database password.
+  clientSecret: ""
+  existingSecret: ""
+  clientSecretKey: oidc-client-secret
+
+# -- RBAC for reading namespace metadata. The only cluster-scoped permission
+# LogGate needs.
+rbac:
+  create: true
+
+# -- In-cluster Keycloak. Local convenience only: it runs in dev mode with
+# ephemeral storage and seeded users. Production points oidc.issuerUri at a
+# real Keycloak and leaves this disabled.
+keycloak:
+  enabled: false
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "26.7.4"
+    pullPolicy: IfNotPresent
+  realm: loggate
+  adminPassword: admin
+  clientSecret: loggate-local-secret
+  # Public URL of Keycloak, and of the app, as the browser sees them.
+  publicUrl: http://auth.localtest.me:8088
+  appUrl: http://loggate.localtest.me:8088
+  ingress:
+    enabled: true
+    host: auth.localtest.me
+  # Teams to create groups for, rendered through namespaces.groupTemplate.
+  teams:
+    - platform
+    - payments
+  demoUserPassword: loggate
+  # dave deliberately has no teams: the refusal path needs a fixture too.
+  demoUsers:
+    - username: alice
+      teams: [platform]
+    - username: bob
+      teams: [payments]
+    - username: carol
+      teams: [platform, payments]
+    - username: dave
+      teams: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+# -- Extra environment variables for the app container, e.g. to raise a log
+# level without rebuilding the image.
+extraEnv: []
+#  - name: LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY
+#    value: DEBUG
+
+# -- Extra hosts resolved inside the app pod. Used locally so the application
+# resolves the browser-facing Keycloak hostname to the ingress.
+hostAliases: []
+
+# -- Upstream Loki read endpoint. Wired up in M3.
 loki:
   url: http://loki-gateway.observability.svc.cluster.local
   tenantId: ""

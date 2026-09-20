@@ -21,6 +21,11 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      serviceAccountName: {{ include "loggate.fullname" . }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- include "loggate.podSecurityContext" . | nindent 8 }}
       initContainers:
@@ -50,6 +55,29 @@ spec:
               memory: 32Mi
             limits:
               memory: 64Mi
+        # The OIDC issuer is resolved at startup, so the application cannot
+        # boot before Keycloak serves its discovery document.
+        - name: wait-for-issuer
+          image: curlimages/curl:latest
+          securityContext:
+            {{- include "loggate.containerSecurityContext" . | nindent 12 }}
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf "$ISSUER/.well-known/openid-configuration" > /dev/null; do
+                echo "waiting for $ISSUER"
+                sleep 3
+              done
+          env:
+            - name: ISSUER
+              value: {{ include "loggate.issuerUri" . | quote }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
       containers:
         - name: loggate
           image: {{ include "loggate.image" . }}
@@ -71,8 +99,35 @@ spec:
                   name: {{ include "loggate.secretName" . }}
                   key: database-password
                   {{- end }}
+            - name: OIDC_ISSUER_URI
+              value: {{ include "loggate.issuerUri" . | quote }}
+            - name: OIDC_REDIRECT_URI
+              value: {{ include "loggate.redirectUri" . | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.oidc.existingSecret }}
+                  name: {{ .Values.oidc.existingSecret }}
+                  key: {{ .Values.oidc.clientSecretKey }}
+                  {{- else }}
+                  name: {{ include "loggate.secretName" . }}
+                  key: oidc-client-secret
+                  {{- end }}
+            - name: TEAM_LABEL_KEY
+              value: {{ .Values.namespaces.labelKey | quote }}
+            - name: TEAM_GROUP_TEMPLATE
+              value: {{ .Values.namespaces.groupTemplate | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.namespaces.environment | quote }}
+            - name: NAMESPACES_ENABLED
+              value: {{ .Values.namespaces.enabled | quote }}
             - name: LOKI_URL
               value: {{ .Values.loki.url | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             {{- with .Values.loki.tenantId }}
             - name: LOKI_TENANT_ID
               value: {{ . | quote }}

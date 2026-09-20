@@ -1,0 +1,27 @@
+# Test defaults. These keep the full application context hermetic: no OIDC
+# discovery call, and no connection to whatever cluster the developer's
+# kubeconfig happens to point at.
+loggate:
+  namespaces:
+    enabled: false
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: loggate
+            client-secret: test-secret
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope: openid
+        provider:
+          keycloak:
+            # Explicit endpoints instead of issuer-uri: issuer discovery would
+            # make every context load an HTTP call to a Keycloak that is not there.
+            authorization-uri: https://issuer.test/auth
+            token-uri: https://issuer.test/token
+            jwk-set-uri: https://issuer.test/jwks
+            user-info-uri: https://issuer.test/userinfo
+            user-name-attribute: preferred_username

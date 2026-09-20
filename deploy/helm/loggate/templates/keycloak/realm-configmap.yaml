@@ -1,0 +1,68 @@
+{{- if .Values.keycloak.enabled }}
+{{- $appUrl := .Values.keycloak.appUrl | trimSuffix "/" -}}
+{{- /* Groups are derived from the teams list so the realm and the namespace
+       labels cannot drift apart: each team gets exactly the group that
+       loggate.namespaces.group-template renders for it. */ -}}
+{{- $groups := list -}}
+{{- range .Values.keycloak.teams -}}
+{{- $group := $.Values.namespaces.groupTemplate | replace "{team}" . | replace "{env}" $.Values.namespaces.environment -}}
+{{- $groups = append $groups (dict "name" $group) -}}
+{{- end -}}
+{{- /* Seeded users carry a complete profile and no required actions: an
+       incomplete profile triggers Keycloak's VERIFY_PROFILE screen on first
+       login, which stalls any scripted or automated sign-in. */ -}}
+{{- $users := list -}}
+{{- range .Values.keycloak.demoUsers -}}
+{{- $userGroups := list -}}
+{{- range .teams -}}
+{{- $group := $.Values.namespaces.groupTemplate | replace "{team}" . | replace "{env}" $.Values.namespaces.environment -}}
+{{- $userGroups = append $userGroups (printf "/%s" $group) -}}
+{{- end -}}
+{{- $users = append $users (dict
+      "username" .username
+      "enabled" true
+      "emailVerified" true
+      "firstName" (.username | title)
+      "lastName" "Demo"
+      "email" (printf "%s@example.test" .username)
+      "requiredActions" (list)
+      "groups" $userGroups
+      "credentials" (list (dict "type" "password" "value" $.Values.keycloak.demoUserPassword "temporary" false))) -}}
+{{- end -}}
+{{- $realm := dict
+      "realm" .Values.keycloak.realm
+      "enabled" true
+      "sslRequired" "none"
+      "groups" $groups
+      "users" $users
+      "clients" (list (dict
+        "clientId" .Values.oidc.clientId
+        "enabled" true
+        "protocol" "openid-connect"
+        "publicClient" false
+        "secret" .Values.keycloak.clientSecret
+        "standardFlowEnabled" true
+        "directAccessGrantsEnabled" false
+        "serviceAccountsEnabled" false
+        "redirectUris" (list (printf "%s/*" $appUrl))
+        "webOrigins" (list $appUrl)
+        "protocolMappers" (list (dict
+          "name" "groups"
+          "protocol" "openid-connect"
+          "protocolMapper" "oidc-group-membership-mapper"
+          "config" (dict
+            "full.path" "false"
+            "claim.name" "groups"
+            "id.token.claim" "true"
+            "access.token.claim" "true"
+            "userinfo.token.claim" "true"))))) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "loggate.fullname" . }}-realm
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+data:
+  loggate-realm.json: |
+    {{- $realm | toPrettyJson | nindent 4 }}
+{{- end }}

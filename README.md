@@ -33,7 +33,8 @@ allowed to be unbounded.
 ## Stack
 
 - **Java 25** and **Spring Boot 4.1**, built with **Gradle** (the toolchain is
-  downloaded on demand, so no JDK install is required)
+  downloaded on demand, so no JDK install is required). No component scanning:
+  every bean is declared in a configuration class under `config`
 - **PostgreSQL 17** via `JdbcClient` with hand-written SQL; schema in
   **Liquibase** changelogs
 - **S3 / MinIO** for export artifacts
@@ -67,6 +68,7 @@ MinIO, builds and imports the app image, installs the chart and runs
 | URL                          | What                              |
 | ---------------------------- | --------------------------------- |
 | http://loggate.localtest.me:8088  | LogGate                      |
+| http://auth.localtest.me:8088     | Keycloak (realm `loggate`)   |
 | http://grafana.localtest.me:8088  | Grafana (`admin` / `loggate`)|
 | http://minio.localtest.me:8088    | MinIO console                |
 
@@ -75,6 +77,30 @@ coexists with other k3d clusters already holding port 80.
 
 Re-running the script after a code change rebuilds and upgrades in place; pass
 `SKIP_STACK=1` to leave Loki, Alloy, Grafana and MinIO untouched.
+
+### End-to-end checks
+
+```bash
+e2e/auth-flow.sh
+```
+
+Drives the real OIDC authorization code flow through Keycloak with a cookie
+jar and asserts the authorization matrix against the deployed stack, including
+the cases that must be **refused** and the audit rows they produce.
+
+### Demo users
+
+Local only, all with password `loggate`. They exist to exercise the
+authorization matrix rather than to look realistic:
+
+| User    | Group             | May export      |
+| ------- | ----------------- | --------------- |
+| `alice` | `ad-platform-dev` | `platform-dev`  |
+| `bob`   | `ad-payments-dev` | `payments-dev`  |
+| `carol` | both              | both            |
+| `dave`  | none              | nothing         |
+
+Keycloak admin console is `admin` / `admin`.
 
 ### Log fixtures
 

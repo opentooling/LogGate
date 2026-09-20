@@ -11,6 +11,23 @@ postgres:
   enabled: true
   storage: 2Gi
 
+# Local Keycloak with seeded teams and users. alice is platform, bob is
+# payments, carol is both, and dave has no team at all so the refusal path has
+# a fixture too.
+keycloak:
+  enabled: true
+  publicUrl: http://auth.localtest.me:8088
+  appUrl: http://loggate.localtest.me:8088
+  ingress:
+    enabled: true
+    host: auth.localtest.me
+
+namespaces:
+  enabled: true
+  labelKey: xyz.com/team
+  groupTemplate: "ad-{team}-{env}"
+  environment: dev
+
 loki:
   url: http://loki-gateway.observability.svc.cluster.local
 

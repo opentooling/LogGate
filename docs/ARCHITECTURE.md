@@ -6,10 +6,12 @@ explains the *why*; the model holds the shape. When the two disagree, the model
 is right about structure and this document is right about intent — fix whichever
 is stale.
 
-> **Status.** LogGate is greenfield. What exists today is the control plane
-> skeleton, the schema, the chart and the local stack. Everything else here is
-> designed and encoded in the schema, but not yet built. Per-component state is
-> in the model's `implementation-status` metadata.
+> **Status.** LogGate is greenfield. Built so far: the control plane skeleton,
+> the schema, the chart and local stack (M1), and authentication with namespace
+> authorization and the audit trail (M2). The extraction engine, quotas,
+> delivery and the UI are designed and encoded in the schema, but not yet
+> built. Per-component state is in the model's `implementation-status`
+> metadata.
 
 ## What this system is for
 
@@ -98,6 +100,19 @@ Three rules fall out of that:
    selector that gets measured is exactly the selector that will run.
 3. **Entitlement is re-checked at download.** A 48-hour artifact must not
    outlive the access that produced it.
+
+### Two deployment facts that are easy to get wrong
+
+**The issuer URL must be byte-identical** for the browser and for the
+application. Keycloak puts the browser-facing URL in the id_token's `iss`, and
+Spring validates the callback against the registered `redirect_uri`. Locally
+that means the ingress listens on the same port the browser uses, and the
+application resolves that hostname to the ingress rather than to itself.
+
+**Group claims need normalising.** Keycloak emits full group paths
+(`/ad-platform-dev`) unless the mapper is reconfigured, and directory-derived
+names vary in case. Comparison strips the path and ignores case, so an
+entitlement is never lost to a leading slash.
 
 ## The export lifecycle
 
@@ -243,6 +258,16 @@ Images are built with Jib from compiled classes: no Dockerfile, no container
 runtime in the build, and a fixed creation time so an unchanged tree produces a
 byte-identical image.
 
+## Bean wiring
+
+There are no stereotype annotations. Every bean is declared with `@Bean` in a
+configuration class under `config`, and the application class uses
+`@SpringBootConfiguration` with `@Import` rather than `@SpringBootApplication`,
+so nothing is component-scanned. The object graph is therefore readable in one
+place instead of being inferred from annotations spread across packages.
+Controllers keep `@RestController`, because request mapping is derived from it,
+but they are registered as beans like everything else.
+
 ## Testing
 
 The coverage gate is 95% LINE **and** BRANCH, wired into `gradle check`, and it
@@ -258,6 +283,8 @@ Coverage alone would be theatre here, so the weight is placed deliberately:
   be refused, which matter more than the ones that succeed.
 - **End to end** through real Keycloak and a real Loki in k3d, including a
   denied cross-team attempt and an export large enough to cross many windows.
+  `e2e/auth-flow.sh` already drives the real authorization code flow and
+  asserts the full authorization matrix, refusals included.
 
 ## Options considered
 

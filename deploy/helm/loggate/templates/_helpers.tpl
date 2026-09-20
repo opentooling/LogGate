@@ -62,6 +62,55 @@ from under a running PostgreSQL.
 {{- end -}}
 {{- end -}}
 
+{{/*
+OIDC client secret, with the same reuse-or-generate rule as the database
+password so an upgrade never rotates it out from under the realm.
+*/}}
+{{- define "loggate.oidcClientSecret" -}}
+{{- if .Values.keycloak.enabled -}}
+{{- .Values.keycloak.clientSecret -}}
+{{- else if .Values.oidc.clientSecret -}}
+{{- .Values.oidc.clientSecret -}}
+{{- else -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "loggate.secretName" .) -}}
+{{- $current := "" -}}
+{{- if $existing -}}
+{{- if $existing.data -}}
+{{- $current = (get $existing.data "oidc-client-secret") -}}
+{{- end -}}
+{{- end -}}
+{{- if $current -}}
+{{- $current | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 40 -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The issuer must be the URL the browser is redirected to, because that is what
+Keycloak puts in the id_token's `iss`. The application therefore has to reach
+that same URL, which locally means resolving it to the ingress.
+*/}}
+{{- define "loggate.issuerUri" -}}
+{{- if .Values.keycloak.enabled -}}
+{{- printf "%s/realms/%s" (.Values.keycloak.publicUrl | trimSuffix "/") .Values.keycloak.realm -}}
+{{- else -}}
+{{- required "oidc.issuerUri is required when keycloak.enabled is false" .Values.oidc.issuerUri -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Public callback URL, matching what is registered with the provider. */}}
+{{- define "loggate.redirectUri" -}}
+{{- if .Values.oidc.redirectUri -}}
+{{- .Values.oidc.redirectUri -}}
+{{- else if .Values.keycloak.enabled -}}
+{{- printf "%s/login/oauth2/code/keycloak" (.Values.keycloak.appUrl | trimSuffix "/") -}}
+{{- else -}}
+{{- printf "https://%s/login/oauth2/code/keycloak" .Values.ingress.host -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "loggate.databaseUrl" -}}
 {{- if .Values.postgres.enabled -}}
 {{- printf "jdbc:postgresql://%s-postgres:5432/%s" (include "loggate.fullname" .) .Values.postgres.database -}}

@@ -1,0 +1,17 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "loggate.fullname" . }}-keycloak
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    {{- include "loggate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+{{- end }}

@@ -1,0 +1,83 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "loggate.fullname" . }}-keycloak
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    # Local convenience only. Production is expected to point at an existing
+    # Keycloak via oidc.issuerUri with keycloak.enabled=false.
+    loggate.opentooling.com/local-only: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "loggate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: keycloak
+  template:
+    metadata:
+      labels:
+        {{- include "loggate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: keycloak
+      annotations:
+        # Re-import the realm whenever it changes.
+        checksum/realm: {{ include (print $.Template.BasePath "/keycloak/realm-configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        {{- if not .Values.openShift }}
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        {{- end }}
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # start-dev with ephemeral storage: the realm is re-imported on every
+          # restart, so realm edits take effect by restarting the pod.
+          args: ["start-dev", "--import-realm"]
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: {{ .Values.keycloak.adminPassword | quote }}
+            - name: KC_HOSTNAME
+              value: {{ .Values.keycloak.publicUrl | quote }}
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /realms/{{ .Values.keycloak.realm }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 40
+          resources:
+            {{- toYaml .Values.keycloak.resources | nindent 12 }}
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm
+          configMap:
+            name: {{ include "loggate.fullname" . }}-realm
+{{- end }}

@@ -27,7 +27,7 @@ if ! k3d cluster list --output json | grep -q "\"name\":\"$CLUSTER\""; then
   for attempt in 1 2 3; do
     if k3d cluster create "$CLUSTER" \
       --agents 1 \
-      --port "${HOST_PORT}:80@loadbalancer" \
+      --port "${HOST_PORT}:${HOST_PORT}@loadbalancer" \
       --k3s-arg "--disable=traefik@server:0" \
       --wait; then
       created=1
@@ -51,11 +51,17 @@ kubectl config use-context "k3d-$CLUSTER" >/dev/null
 # midway, the admission webhook can be left with an empty caBundle (its patch
 # Job never ran), which fails every later Ingress apply. Re-running the install
 # re-runs the hooks and repairs it.
+# The ingress listens on the same port the browser uses, so X-Forwarded-Port
+# matches the public URL. Without that the OAuth2 callback URL the application
+# reconstructs does not match the registered redirect_uri and login fails.
 log "Installing ingress-nginx"
 helm upgrade --install ingress-nginx ingress-nginx \
   --repo https://kubernetes.github.io/ingress-nginx \
   --namespace ingress-nginx --create-namespace \
   --set controller.service.type=LoadBalancer \
+  --set controller.service.ports.http=${HOST_PORT} \
+  --set controller.containerPort.http=${HOST_PORT} \
+  --set controller.extraArgs.http-port=${HOST_PORT} \
   --set controller.hostPort.enabled=false \
   --set controller.ingressClassResource.default=true \
   --set controller.watchIngressWithoutClass=true \
@@ -113,11 +119,21 @@ log "Importing image into k3d"
 k3d image import "$REPO_ROOT/backend/build/jib-image.tar" -c "$CLUSTER"
 
 # --- install ----------------------------------------------------------------
+# The OIDC issuer URL must be byte-identical for the browser and for the
+# application, or the id_token's `iss` will not match. The browser reaches it
+# through the host port; the application reaches the same name and port by
+# resolving it to the ingress controller inside the cluster.
+INGRESS_IP="$(kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.spec.clusterIP}')"
+log "Resolving auth.localtest.me to the ingress at $INGRESS_IP for in-cluster calls"
+
 log "Installing the LogGate chart"
 helm upgrade --install loggate "$REPO_ROOT/deploy/helm/loggate" \
   --namespace "$APP_NS" --create-namespace \
   -f "$REPO_ROOT/deploy/local/values-local.yaml" \
+  ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
   --set-string "image.tag=$TAG" \
+  --set-string "hostAliases[0].ip=$INGRESS_IP" \
+  --set-string "hostAliases[0].hostnames[0]=auth.localtest.me" \
   --wait --timeout 5m
 
 log "Running chart tests"
@@ -126,6 +142,7 @@ helm test loggate --namespace "$APP_NS"
 cat <<EOF
 
 LogGate    http://loggate.localtest.me:${HOST_PORT}
+Keycloak   http://auth.localtest.me:${HOST_PORT}        (admin / admin)
 Grafana    http://grafana.localtest.me:${HOST_PORT}      (admin / loggate)
 MinIO      http://minio.localtest.me:${HOST_PORT}        (loggate / loggate-local-dev)
 
