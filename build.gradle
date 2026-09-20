@@ -1,0 +1,8 @@
+plugins {
+  id 'org.springframework.boot' version '4.1.1' apply false
+}
+
+allprojects {
+  group = 'com.opentooling.loggate'
+  version = '0.1.0-SNAPSHOT'
+}

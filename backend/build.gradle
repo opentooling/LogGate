@@ -1,0 +1,111 @@
+plugins {
+  id 'java'
+  id 'jacoco'
+  id 'org.springframework.boot'
+  id 'com.google.cloud.tools.jib' version '3.5.4'
+}
+
+// Image coordinates, overridable from the deploy script / CI.
+ext.imageName = project.findProperty('imageName') ?: 'loggate'
+ext.imageTag = project.findProperty('imageTag') ?: project.version
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(25)
+    vendor = JvmVendorSpec.ADOPTIUM
+  }
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+  testImplementation platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+  // Spring Boot 4 no longer manages Testcontainers versions in its BOM.
+  testImplementation platform('org.testcontainers:testcontainers-bom:2.0.5')
+
+  implementation 'org.springframework.boot:spring-boot-starter-web'
+  implementation 'org.springframework.boot:spring-boot-starter-validation'
+  implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+  implementation 'org.springframework.boot:spring-boot-starter-actuator'
+  implementation 'org.springframework.boot:spring-boot-starter-liquibase'
+  runtimeOnly 'org.postgresql:postgresql'
+
+  testImplementation 'org.springframework.boot:spring-boot-starter-test'
+  testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+  testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+  testImplementation 'org.testcontainers:testcontainers-postgresql'
+}
+
+// Jib builds the image straight from the compiled classes and dependencies,
+// so there is no Dockerfile and no container runtime needed to produce one.
+jib {
+  from {
+    image = 'eclipse-temurin:25-jre-alpine'
+  }
+  to {
+    image = "${imageName}"
+    tags = [imageTag as String]
+  }
+  container {
+    user = '10001:10001'
+    ports = ['8080']
+    jvmFlags = ['-XX:MaxRAMPercentage=75', '-XX:+ExitOnOutOfMemoryError']
+    // Reproducible builds: a fixed creation time means an unchanged source tree
+    // produces a byte-identical image.
+    creationTime = 'EPOCH'
+    filesModificationTime = 'EPOCH_PLUS_SECOND'
+  }
+}
+
+tasks.withType(JavaCompile).configureEach {
+  options.compilerArgs.addAll(['-Xlint:all,-processing', '-Werror'])
+}
+
+jacoco {
+  toolVersion = '0.8.15'
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+  finalizedBy tasks.named('jacocoTestReport')
+}
+
+tasks.named('jacocoTestReport') {
+  dependsOn tasks.named('test')
+  reports {
+    xml.required = true
+    html.required = true
+  }
+}
+
+// The coverage gate. LINE and BRANCH both at 95%, checked on `gradle check`.
+tasks.named('jacocoTestCoverageVerification') {
+  dependsOn tasks.named('jacocoTestReport')
+  violationRules {
+    rule {
+      limit {
+        counter = 'LINE'
+        value = 'COVEREDRATIO'
+        minimum = 0.95
+      }
+      limit {
+        counter = 'BRANCH'
+        value = 'COVEREDRATIO'
+        minimum = 0.95
+      }
+    }
+  }
+  // Bootstrap class: a main() that delegates straight to Spring.
+  classDirectories.setFrom(
+    files(classDirectories.files.collect {
+      fileTree(dir: it, exclude: 'com/opentooling/loggate/LogGateApplication.class')
+    })
+  )
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('jacocoTestCoverageVerification')
+}

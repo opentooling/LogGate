@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "loggate.fullname" . }}
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector:
+    {{- include "loggate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: app

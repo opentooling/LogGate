@@ -1,0 +1,18 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "loggate.fullname" . }}-postgres
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    {{- include "loggate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+{{- end }}

@@ -1,0 +1,29 @@
+# Object storage for LogGate export artifacts. Standalone, single drive: this
+# is a laptop, not a durability exercise.
+mode: standalone
+replicas: 1
+
+rootUser: loggate
+rootPassword: loggate-local-dev
+
+persistence:
+  enabled: true
+  size: 20Gi
+
+buckets:
+  - name: loggate-exports
+    policy: none
+    purge: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+
+ingress:
+  enabled: false
+
+consoleIngress:
+  enabled: true
+  hosts:
+    - minio.localtest.me

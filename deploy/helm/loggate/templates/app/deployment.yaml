@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "loggate.fullname" . }}
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "loggate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        {{- include "loggate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: app
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      securityContext:
+        {{- include "loggate.podSecurityContext" . | nindent 8 }}
+      initContainers:
+        # Liquibase runs at application startup and fails fast, so a pod that
+        # starts before the database Service resolves would crash-loop its way
+        # to readiness. Waiting here makes startup deterministic instead.
+        - name: wait-for-db
+          image: {{ .Values.postgres.image }}
+          securityContext:
+            {{- include "loggate.containerSecurityContext" . | nindent 12 }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h "$DB_HOST" -p 5432 -U "$DB_USER" -q; do
+                echo "waiting for $DB_HOST"
+                sleep 2
+              done
+          env:
+            - name: DB_HOST
+              value: {{ if .Values.postgres.enabled }}{{ printf "%s-postgres" (include "loggate.fullname" .) }}{{ else }}{{ .Values.externalDatabase.host | default "" }}{{ end }}
+            - name: DB_USER
+              value: {{ if .Values.postgres.enabled }}{{ .Values.postgres.username | quote }}{{ else }}{{ .Values.externalDatabase.username | quote }}{{ end }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+      containers:
+        - name: loggate
+          image: {{ include "loggate.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "loggate.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              value: {{ include "loggate.databaseUrl" . | quote }}
+            - name: DATABASE_USER
+              value: {{ if .Values.postgres.enabled }}{{ .Values.postgres.username | quote }}{{ else }}{{ .Values.externalDatabase.username | quote }}{{ end }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if and (not .Values.postgres.enabled) .Values.externalDatabase.existingSecret }}
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  key: {{ .Values.externalDatabase.passwordKey }}
+                  {{- else }}
+                  name: {{ include "loggate.secretName" . }}
+                  key: database-password
+                  {{- end }}
+            - name: LOKI_URL
+              value: {{ .Values.loki.url | quote }}
+            {{- with .Values.loki.tenantId }}
+            - name: LOKI_TENANT_ID
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so the JVM needs a writable tmp.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

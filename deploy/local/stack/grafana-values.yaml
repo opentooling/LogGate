@@ -1,0 +1,30 @@
+adminUser: admin
+adminPassword: loggate
+
+persistence:
+  enabled: false
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki-gateway.observability.svc.cluster.local
+        isDefault: true
+
+ingress:
+  enabled: true
+  hosts:
+    - grafana.localtest.me
+  path: /
+  pathType: Prefix
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+testFramework:
+  enabled: false

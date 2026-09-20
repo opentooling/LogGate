@@ -1,0 +1,81 @@
+# -- Image for the LogGate application.
+image:
+  repository: loggate
+  tag: ""          # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# -- Extra pod/container hardening. Set openShift=true to drop the explicit
+# uid/gid and let the restricted-v2 SCC assign them.
+openShift: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+service:
+  port: 8080
+
+ingress:
+  enabled: true
+  className: ""
+  host: loggate.localtest.me
+  annotations: {}
+  tls: []
+
+# -- In-cluster PostgreSQL. Point `externalDatabase` at a managed instance for
+# production and set postgres.enabled=false.
+postgres:
+  enabled: true
+  image: postgres:17-alpine
+  database: loggate
+  username: loggate
+  storage: 8Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+externalDatabase:
+  url: ""
+  # Host is separate from the JDBC url because the wait-for-db init container
+  # probes it with pg_isready before the application starts.
+  host: ""
+  username: ""
+  existingSecret: ""
+  passwordKey: password
+
+# -- Secrets. Leave passwords empty to have the chart generate them once and
+# keep them across upgrades.
+secrets:
+  databasePassword: ""
+
+# -- Upstream Loki read endpoint. Wired up in M2/M3.
+loki:
+  url: http://loki-gateway.observability.svc.cluster.local
+  tenantId: ""
+
+# -- Extra Kubernetes objects to deploy with the release, e.g. custom resources.
+# Items can be YAML objects or strings; both are rendered with `tpl`, so template
+# expressions like {{ include "loggate.fullname" $ }} and {{ .Release.Namespace }}
+# work. CRDs for any custom resources must already be installed in the cluster.
+extraObjects: []
+#  - apiVersion: route.openshift.io/v1
+#    kind: Route
+#    metadata:
+#      name: '{{ include "loggate.fullname" $ }}'
+#    spec:
+#      host: loggate.apps.example.com
+#      to: { kind: Service, name: '{{ include "loggate.fullname" $ }}' }
+#      port: { targetPort: http }
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

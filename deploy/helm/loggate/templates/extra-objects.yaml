@@ -1,0 +1,13 @@
+{{- /*
+Extra manifests from values (e.g. custom resources, OpenShift Routes, NetworkPolicies).
+Each item is either a YAML object or a string; both are rendered with `tpl`, so they
+can use template expressions such as {{ include "loggate.fullname" $ }}.
+*/}}
+{{- range .Values.extraObjects }}
+---
+{{- if typeIs "string" . }}
+{{ tpl . $ }}
+{{- else }}
+{{ tpl (toYaml .) $ }}
+{{- end }}
+{{- end }}

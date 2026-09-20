@@ -1,0 +1,9 @@
+apiVersion: v2
+name: loggate
+description: Governed bulk log export for Grafana Loki
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/opentooling/LogGate
+sources:
+  - https://github.com/opentooling/LogGate
