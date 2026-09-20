@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.opentooling.loggate.authz.GroupNameRenderer;
 import com.opentooling.loggate.config.LogGateProperties;
+import com.opentooling.loggate.config.TestProperties;
 import io.fabric8.kubernetes.api.model.NamespaceBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.server.mock.EnableKubernetesMockClient;
@@ -25,7 +26,7 @@ class KubernetesNamespaceCatalogTest {
 
   private KubernetesNamespaceCatalog started() {
     LogGateProperties properties =
-        new LogGateProperties(
+        TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));
@@ -117,7 +118,7 @@ class KubernetesNamespaceCatalogTest {
     org.mockito.Mockito.when(broken.namespaces())
         .thenThrow(new io.fabric8.kubernetes.client.KubernetesClientException("no API server"));
     LogGateProperties properties =
-        new LogGateProperties(
+        TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));
@@ -134,7 +135,7 @@ class KubernetesNamespaceCatalogTest {
   @Test
   void reportsNotReadyAndResolvesNothingBeforeItStarts() {
     LogGateProperties properties =
-        new LogGateProperties(
+        TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));

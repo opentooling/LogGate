@@ -134,6 +134,46 @@ spec:
               value: {{ .Values.namespaces.enabled | quote }}
             - name: LOKI_URL
               value: {{ .Values.loki.url | quote }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.storage.endpoint | quote }}
+            - name: S3_REGION
+              value: {{ .Values.storage.region | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.storage.bucket | quote }}
+            - name: S3_PATH_STYLE
+              value: {{ .Values.storage.pathStyle | quote }}
+            {{- if or .Values.storage.accessKey .Values.storage.existingSecret }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.existingSecret | default (include "loggate.secretName" .) }}
+                  key: storage-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.existingSecret | default (include "loggate.secretName" .) }}
+                  key: storage-secret-key
+            {{- end }}
+            - name: WORKERS_ENABLED
+              value: {{ .Values.execution.enabled | quote }}
+            - name: WORKER_COUNT
+              value: {{ .Values.execution.workers | quote }}
+            - name: WORKER_LEASE
+              value: {{ .Values.execution.lease | quote }}
+            - name: WORKER_MAX_ATTEMPTS
+              value: {{ .Values.execution.maxAttempts | quote }}
+            - name: ARTIFACT_RETENTION
+              value: {{ .Values.execution.retention | quote }}
+            - name: QUOTA_MAX_RANGE
+              value: {{ .Values.quotas.maxRange | quote }}
+            - name: QUOTA_MAX_ESTIMATED_BYTES
+              # int64, because YAML renders a large plain integer in scientific
+              # notation and the application then cannot parse it.
+              value: {{ .Values.quotas.maxEstimatedBytes | int64 | quote }}
+            - name: QUOTA_CONCURRENT_PER_USER
+              value: {{ .Values.quotas.concurrentPerUser | quote }}
+            - name: QUOTA_CONCURRENT_GLOBAL
+              value: {{ .Values.quotas.concurrentGlobal | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -8,8 +8,9 @@ is stale.
 
 > **Status.** LogGate is greenfield. Built so far: the control plane skeleton,
 > the schema, the chart and local stack (M1), authentication with namespace
-> authorization and the audit trail (M2), and the extraction engine with export
-> sizing (M3). The extraction engine, quotas,
+> authorization and the audit trail (M2), the extraction engine with export
+> sizing (M3), and the queue, quotas and workers that actually run an export
+> (M4). The extraction engine, quotas,
 > delivery and the UI are designed and encoded in the schema, but not yet
 > built. Per-component state is in the model's `implementation-status`
 > metadata.
@@ -204,6 +205,32 @@ its keep.
 Sizing uses the stream selector **without** the line filter. A filter reduces
 what gets written but not what Loki reads, so the honest number to quota
 against is the unfiltered one.
+
+## Running an export
+
+Windows are claimed with `FOR UPDATE SKIP LOCKED`, so many workers take work
+concurrently without coordinating — each skips rows another holds rather than
+queueing behind them. A claim carries a **lease**, renewed by heartbeat while
+the window genuinely progresses. Nothing detects a dead worker: its lease
+simply stops being renewed and the window becomes claimable again.
+
+That is why the object key matters so much. It is derived from the job and
+window index *alone* — never from an attempt number or a timestamp — so a
+window run twice after a lapsed lease **overwrites its part** rather than
+producing a second copy. Completing a window twice is counted once.
+
+Two things stop an export mid-flight:
+
+- **Cancellation** is a flag on the job, noticed between pages. The finalizer
+  closes a cancelled job only once no worker still holds a window, then purges
+  its parts — a cancelled export is not a partial export, and fragments of
+  production logs should not sit in a bucket.
+- **The byte cap** is checked every few thousand entries, not at the end. The
+  running total is the job's tally at claim time plus what this window has
+  produced, which under-counts what other windows are writing concurrently. So
+  the cap is *approached* rather than enforced to the byte. The alternative is
+  a shared counter updated per entry, which is a lot of contention to buy
+  precision nobody needs.
 
 ## Artifacts and delivery
 

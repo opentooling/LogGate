@@ -140,7 +140,33 @@ extraEnv: []
 # resolves the browser-facing Keycloak hostname to the ingress.
 hostAliases: []
 
-# -- Upstream Loki read endpoint. Wired up in M3.
+# -- Object storage for export artifacts. Leave the keys empty to use the
+# instance's own credentials (IAM role, IRSA) instead of a secret.
+storage:
+  endpoint: http://minio.observability.svc.cluster.local:9000
+  region: us-east-1
+  bucket: loggate-exports
+  accessKey: ""
+  secretKey: ""
+  existingSecret: ""
+  # MinIO addresses buckets by path rather than by subdomain.
+  pathStyle: true
+
+# -- Workers and quotas.
+execution:
+  enabled: true
+  workers: 4
+  lease: 2m
+  maxAttempts: 3
+  retention: 48h
+
+quotas:
+  maxRange: 2d
+  maxEstimatedBytes: 53687091200
+  concurrentPerUser: 2
+  concurrentGlobal: 10
+
+# -- Upstream Loki read endpoint.
 loki:
   url: http://loki-gateway.observability.svc.cluster.local
   tenantId: ""

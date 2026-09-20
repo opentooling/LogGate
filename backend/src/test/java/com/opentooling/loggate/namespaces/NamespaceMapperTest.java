@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.opentooling.loggate.authz.GroupNameRenderer;
 import com.opentooling.loggate.config.LogGateProperties;
+import com.opentooling.loggate.config.TestProperties;
 import io.fabric8.kubernetes.api.model.Namespace;
 import io.fabric8.kubernetes.api.model.NamespaceBuilder;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
@@ -14,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class NamespaceMapperTest {
 
   private static final LogGateProperties PROPERTIES =
-      new LogGateProperties(
+      TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));

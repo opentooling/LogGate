@@ -14,7 +14,62 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  */
 @ConfigurationProperties("loggate")
 public record LogGateProperties(
-    @DefaultValue Namespaces namespaces, @DefaultValue Loki loki, @DefaultValue Windows windows) {
+    @DefaultValue Namespaces namespaces,
+    @DefaultValue Loki loki,
+    @DefaultValue Windows windows,
+    @DefaultValue Quotas quotas,
+    @DefaultValue Execution execution,
+    @DefaultValue Storage storage) {
+
+  /**
+   * @param maxRange longest range one export may cover
+   * @param maxEstimatedBytes largest export that may be admitted
+   * @param concurrentPerUser exports one person may have in flight
+   * @param concurrentGlobal exports the platform may have in flight
+   * @param byteLimitHeadroom multiplier over the estimate for the runtime cap,
+   *     because a live namespace keeps receiving logs while the export runs
+   * @param minimumByteLimit floor for the runtime cap, so small exports are not
+   *     failed by a tiny estimate
+   */
+  public record Quotas(
+      @DefaultValue("2d") Duration maxRange,
+      @DefaultValue("53687091200") long maxEstimatedBytes,
+      @DefaultValue("2") int concurrentPerUser,
+      @DefaultValue("10") int concurrentGlobal,
+      @DefaultValue("1.25") double byteLimitHeadroom,
+      @DefaultValue("67108864") long minimumByteLimit) {}
+
+  /**
+   * @param enabled whether this pod runs workers at all
+   * @param workers how many windows may run at once in one pod
+   * @param lease how long a worker holds a window before it can be reclaimed
+   * @param maxAttempts attempts per window before giving up on the job
+   * @param idlePause how long a worker waits when the queue is empty
+   * @param retention how long artifacts live once a job is ready
+   */
+  public record Execution(
+      @DefaultValue("true") boolean enabled,
+      @DefaultValue("4") int workers,
+      @DefaultValue("2m") Duration lease,
+      @DefaultValue("3") int maxAttempts,
+      @DefaultValue("2s") Duration idlePause,
+      @DefaultValue("48h") Duration retention) {}
+
+  /**
+   * @param endpoint S3-compatible endpoint
+   * @param region region to sign with
+   * @param bucket bucket holding export artifacts
+   * @param accessKey access key
+   * @param secretKey secret key
+   * @param pathStyle whether to use path-style addressing, which MinIO needs
+   */
+  public record Storage(
+      @DefaultValue("http://minio.observability.svc.cluster.local:9000") String endpoint,
+      @DefaultValue("us-east-1") String region,
+      @DefaultValue("loggate-exports") String bucket,
+      @DefaultValue("") String accessKey,
+      @DefaultValue("") String secretKey,
+      @DefaultValue("true") boolean pathStyle) {}
 
   /**
    * @param enabled whether to resolve namespaces from the Kubernetes API; when

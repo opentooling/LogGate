@@ -31,6 +31,17 @@ namespaces:
 loki:
   url: http://loki-gateway.observability.svc.cluster.local
 
+storage:
+  endpoint: http://minio.observability.svc.cluster.local:9000
+  bucket: loggate-exports
+  accessKey: loggate
+  secretKey: loggate-local-dev
+
+quotas:
+  # Small local ranges, so a mistake is cheap to notice.
+  maxRange: 2d
+  maxEstimatedBytes: 5368709120
+
 resources:
   requests:
     cpu: 50m

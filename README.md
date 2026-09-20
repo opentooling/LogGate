@@ -83,6 +83,7 @@ Re-running the script after a code change rebuilds and upgrades in place; pass
 ```bash
 e2e/auth-flow.sh        # authentication and the authorization matrix
 e2e/export-estimate.sh  # export sizing against a real Loki
+e2e/export-run.sh       # an export run to completion, with parts in MinIO
 ```
 
 Both drive the real OIDC authorization code flow through Keycloak with a cookie

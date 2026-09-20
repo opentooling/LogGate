@@ -34,6 +34,9 @@ dependencies {
   implementation 'org.springframework.boot:spring-boot-starter-security'
   implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
   implementation 'io.fabric8:kubernetes-client:7.9.0'
+  implementation platform("software.amazon.awssdk:bom:2.55.1")
+  implementation 'software.amazon.awssdk:s3'
+  implementation 'software.amazon.awssdk:apache-client'
   runtimeOnly 'org.postgresql:postgresql'
 
   testImplementation 'org.springframework.boot:spring-boot-starter-test'
@@ -43,6 +46,7 @@ dependencies {
   testImplementation 'org.springframework.boot:spring-boot-testcontainers'
   testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
   testImplementation 'org.testcontainers:testcontainers-postgresql'
+  testImplementation 'org.testcontainers:testcontainers-minio'
   testImplementation 'org.springframework.security:spring-security-test'
   testImplementation 'io.fabric8:kubernetes-server-mock:7.9.0'
   testImplementation 'org.awaitility:awaitility'

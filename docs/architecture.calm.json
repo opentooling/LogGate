@@ -35,7 +35,7 @@
       "unique-id": "loggate-worker",
       "node-type": "service",
       "name": "LogGate extraction worker",
-      "description": "Claims export windows from Postgres with FOR UPDATE SKIP LOCKED under a heartbeat lease, pages Loki's query_range within the window, de-duplicates entries at the nanosecond boundary between pages, and streams gzip parts straight into object storage. Deployed from the same image as the control plane under a separate role, so extraction scales independently of the API. NOTE: not built in this revision."
+      "description": "Claims export windows from Postgres with FOR UPDATE SKIP LOCKED under a heartbeat lease, pages Loki's query_range within the window, de-duplicates entries at the nanosecond boundary, and streams gzipped JSON lines straight into a multipart upload. Enforces cancellation and the byte cap mid-window rather than at the end. Runs on virtual threads inside the control-plane image under a separate role. Built."
     },
     {
       "unique-id": "loggate-postgres",
@@ -48,7 +48,7 @@
       "unique-id": "export-object-store",
       "node-type": "database",
       "name": "Export artifact store",
-      "description": "S3-compatible object storage (MinIO locally) holding the gzip parts, the manifest and any assembled ZIP. Parts are written by multipart upload and assembled server-side with UploadPartCopy, so tens of gigabytes never pass through a worker's disk or heap. Artifacts carry a short TTL with a bucket lifecycle rule as backstop. NOTE: provisioned in the local stack; not yet written to.",
+      "description": "S3-compatible object storage (MinIO locally) holding the gzip parts, and later the manifest and any assembled ZIP. Parts are written by multipart upload from a 5 MiB buffer, so a multi-gigabyte window never touches heap or disk. Artifacts of a cancelled job are purged. Built; presigned delivery and server-side assembly are not.",
       "data-classification": "PII"
     },
     {
@@ -368,9 +368,9 @@
     },
     {
       "implementation-status": {
-        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization.",
-        "designed-not-built": "loggate-ui, loggate-worker, the quota engine and every artifact path. The engine produces entries; nothing yet writes them to object storage or runs windows concurrently under a lease.",
-        "milestones": "M1 foundation (done) / M2 auth and namespace authorization (done) / M3 extraction engine (done) / M4 queue, quotas and lifecycle / M5 delivery and UI / M6 hardening and a verified multi-gigabyte export."
+        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization. M4 execution: the Postgres work queue with SKIP LOCKED claims and heartbeat leases, workers streaming gzip parts to object storage, mid-window cancellation and byte caps, layered admission quotas, job progress and cancellation endpoints, and the finalizer that publishes finished jobs and purges cancelled ones.",
+        "designed-not-built": "loggate-ui and the delivery path: the manifest, server-side assembly of per-stream files, presigned URLs and the proxied ZIP. Parts exist in object storage; nothing hands them to a user yet.",
+        "milestones": "M1 foundation, M2 auth and namespace authorization, M3 extraction engine, M4 queue, quotas and lifecycle (all done) / M5 delivery and UI / M6 hardening and a verified multi-gigabyte export."
       }
     },
     {
@@ -398,9 +398,9 @@
     {
       "quota-model": {
         "submit-time": "Maximum time range, maximum namespaces and streams, and estimated bytes from index/volume_range.",
-        "runtime": "Hard byte cap and wall-clock deadline, both enforced mid-extraction.",
+        "runtime": "A hard byte cap checked every few thousand entries rather than at the end of a window, so an over-limit export stops early instead of being written in full and then rejected. The cap carries headroom over the estimate because the range keeps receiving logs while the export runs, and it is recorded on the job so a job is judged against the limit it was admitted under.",
         "concurrency": "Per user, per team and global concurrent job limits, plus a cap on simultaneous Loki queries originating from LogGate.",
-        "budget": "Per-team daily exported volume.",
+        "budget": "Per-team daily exported volume is designed but not built; concurrency and size limits carry the load today. Scheduled for M6.",
         "storage": "Artifact TTL of 24-48 hours swept by the control plane, with an object-store lifecycle rule as backstop so a broken sweeper cannot leak log data indefinitely."
       }
     },
@@ -440,6 +440,15 @@
     {
       "known-limitations": {
         "single-api-replica": "The OAuth2 authorization request is held in an in-memory HTTP session between the redirect to Keycloak and the callback, so two API pods serving at once break login. replicaCount is pinned to 1 and the deployment strategy is Recreate, which trades a few seconds of downtime on upgrade for a login flow that always completes. Lifting this needs a shared session store; Spring Session JDBC was tried and rejected because Spring Security 7's authorization request is not Java-serializable, so the session store fails to persist it. A cookie-based authorization request repository is the likely fix. Scheduled for M6."
+      }
+    },
+    {
+      "execution-model": {
+        "queue": "Windows are claimed with FOR UPDATE SKIP LOCKED so many workers take work concurrently without coordinating, each skipping rows another holds rather than waiting behind them.",
+        "leases": "A claim carries a lease renewed by heartbeat while the window genuinely progresses. Nothing detects a dead worker; its lease simply stops being renewed and the window becomes claimable again.",
+        "idempotency": "A part's object key is derived from the job and window index alone, never from an attempt or a timestamp, so a window run twice overwrites its part instead of duplicating it. Completing a window twice is counted once.",
+        "byte-accounting": "The running total is the job's tally when the window was claimed plus what the window has produced. Under concurrency that under-counts what other windows are writing, so the cap is approached rather than enforced to the byte - the alternative being a shared counter updated per entry.",
+        "cancellation": "A flag on the job, noticed between pages. The finalizer closes a cancelled job only once no worker still holds a window, then purges its parts: a cancelled export is not a partial export."
       }
     }
   ]

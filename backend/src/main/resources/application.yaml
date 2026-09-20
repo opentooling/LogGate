@@ -44,6 +44,24 @@ loggate:
     min-duration: ${WINDOW_MIN_DURATION:1m}
     max-duration: ${WINDOW_MAX_DURATION:1h}
     max-count: ${WINDOW_MAX_COUNT:5000}
+  quotas:
+    max-range: ${QUOTA_MAX_RANGE:2d}
+    max-estimated-bytes: ${QUOTA_MAX_ESTIMATED_BYTES:53687091200}
+    concurrent-per-user: ${QUOTA_CONCURRENT_PER_USER:2}
+    concurrent-global: ${QUOTA_CONCURRENT_GLOBAL:10}
+  execution:
+    enabled: ${WORKERS_ENABLED:true}
+    workers: ${WORKER_COUNT:4}
+    lease: ${WORKER_LEASE:2m}
+    max-attempts: ${WORKER_MAX_ATTEMPTS:3}
+    retention: ${ARTIFACT_RETENTION:48h}
+  storage:
+    endpoint: ${S3_ENDPOINT:http://minio.observability.svc.cluster.local:9000}
+    region: ${S3_REGION:us-east-1}
+    bucket: ${S3_BUCKET:loggate-exports}
+    access-key: ${S3_ACCESS_KEY:}
+    secret-key: ${S3_SECRET_KEY:}
+    path-style: ${S3_PATH_STYLE:true}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}

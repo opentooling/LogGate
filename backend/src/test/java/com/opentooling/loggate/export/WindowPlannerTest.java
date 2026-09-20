@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.opentooling.loggate.config.LogGateProperties;
+import com.opentooling.loggate.config.TestProperties;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,7 @@ class WindowPlannerTest {
 
   private static WindowPlanner planner(long targetBytes, Duration min, Duration max, int maxCount) {
     return new WindowPlanner(
-        new LogGateProperties(
+        TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30)),
             new LogGateProperties.Windows(targetBytes, min, max, maxCount)));

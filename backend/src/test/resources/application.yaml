@@ -4,6 +4,14 @@
 loggate:
   namespaces:
     enabled: false
+  storage:
+    endpoint: http://minio.test:9000
+    access-key: test-key
+    secret-key: test-secret
+  execution:
+    # No background workers in tests: they are exercised directly, and a loop
+    # polling the database would make every other test's timing unpredictable.
+    enabled: false
 
 spring:
   security:

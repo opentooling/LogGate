@@ -9,6 +9,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.opentooling.loggate.config.LogGateProperties;
+import com.opentooling.loggate.config.TestProperties;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,7 +36,7 @@ class HttpLokiClientTest {
     return new HttpLokiClient(
         builder.baseUrl("http://loki.test").build(),
         JsonMapper.builder().build(),
-        new LogGateProperties(
+        TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", tenantId, 5000, Duration.ofSeconds(30)),
             new LogGateProperties.Windows(1024, Duration.ofMinutes(1), Duration.ofHours(1), 5000)),
@@ -244,7 +245,7 @@ class HttpLokiClientTest {
         new HttpLokiClient(
             builder.baseUrl("http://loki.test").build(),
             JsonMapper.builder().build(),
-            new LogGateProperties(
+            TestProperties.of(
                 new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
                 new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30)),
                 new LogGateProperties.Windows(1024, Duration.ofMinutes(1), Duration.ofHours(1), 5000)),

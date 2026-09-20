@@ -3,6 +3,7 @@ package com.opentooling.loggate.config;
 import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.export.ExportEstimator;
+import com.opentooling.loggate.export.ExportService;
 import com.opentooling.loggate.web.ExportController;
 import com.opentooling.loggate.web.NamespaceController;
 import org.springframework.context.annotation.Bean;
@@ -23,7 +24,8 @@ public class WebConfig {
   }
 
   @Bean
-  ExportController exportController(AuthorizationGate authorization, ExportEstimator estimator) {
-    return new ExportController(authorization, estimator);
+  ExportController exportController(
+      AuthorizationGate authorization, ExportEstimator estimator, ExportService exports) {
+    return new ExportController(authorization, estimator, exports);
   }
 }

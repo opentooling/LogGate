@@ -18,6 +18,9 @@ import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
 import com.opentooling.loggate.export.ExportEstimate;
 import com.opentooling.loggate.export.ExportEstimator;
+import com.opentooling.loggate.export.ExportService;
+import com.opentooling.loggate.jobs.ExportJob;
+import com.opentooling.loggate.jobs.JobState;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +33,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.OidcLoginRequestPostProcessor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 @WebMvcTest(ExportController.class)
 @Import({SecurityConfig.class, WebConfig.class, TestClientRegistrationConfig.class})
@@ -46,6 +50,7 @@ class ExportControllerTest {
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private ExportEstimator estimator;
   @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private ExportService exports;
 
   private static OidcLoginRequestPostProcessor alice() {
     return oidcLogin()
@@ -150,6 +155,163 @@ class ExportControllerTest {
                 .content(VALID_BODY))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("export would need 90000 windows"));
+  }
+
+  private static ExportJob job(java.util.UUID id, JobState state) {
+    return new ExportJob(
+        id,
+        "alice-subject",
+        state,
+        null,
+        null,
+        List.of("platform-dev"),
+        "{namespace=\"platform-dev\"}",
+        Instant.parse("2026-09-20T00:00:00Z"),
+        Instant.parse("2026-09-21T00:00:00Z"),
+        1024,
+        2048,
+        8,
+        2,
+        512,
+        5,
+        false,
+        Instant.parse("2026-09-20T09:00:00Z"),
+        null);
+  }
+
+  @Test
+  void queuesAnAdmittedExport() throws Exception {
+    allowEverything(authorization);
+    var id = java.util.UUID.randomUUID();
+    when(exports.submit(any(), any(), any()))
+        .thenReturn(new ExportService.Submission(job(id, JobState.PLANNED), null, null));
+
+    mvc.perform(
+            post("/api/exports")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(id.toString()))
+        .andExpect(jsonPath("$.state").value("PLANNED"))
+        .andExpect(jsonPath("$.windowsTotal").value(8));
+  }
+
+  @Test
+  void refusesAnExportThatIsOverQuotaWithTooManyRequests() throws Exception {
+    // 429 rather than 403: the request is legitimate, there is simply no room
+    // for it right now, so the caller should retry rather than change it.
+    allowEverything(authorization);
+    when(exports.submit(any(), any(), any()))
+        .thenReturn(new ExportService.Submission(null, "you already have 2 exports running", null));
+
+    mvc.perform(
+            post("/api/exports")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(jsonPath("$.message").value("you already have 2 exports running"));
+  }
+
+  @Test
+  void refusesToSubmitForANamespaceTheCallerCannotRead() throws Exception {
+    when(authorization.check(any(), any(), any()))
+        .thenReturn(
+            new AccessDecision(Set.of(), Map.of("platform-dev", DenialReason.NOT_A_GROUP_MEMBER)));
+
+    mvc.perform(
+            post("/api/exports")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+        .andExpect(status().isForbidden());
+
+    verify(exports, never()).submit(any(), any(), any());
+  }
+
+  @Test
+  void rejectsASubmissionWithAReversedRange() throws Exception {
+    mvc.perform(
+            post("/api/exports")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"namespaces":["platform-dev"],
+                     "from":"2026-09-21T00:00:00Z","to":"2026-09-20T00:00:00Z"}
+                    """))
+        .andExpect(status().isBadRequest());
+
+    verify(exports, never()).submit(any(), any(), any());
+  }
+
+  @Test
+  void reportsAPlanThatCannotBeBuiltAsTheCallersProblemOnSubmit() throws Exception {
+    allowEverything(authorization);
+    when(exports.submit(any(), any(), any()))
+        .thenThrow(new IllegalArgumentException("export would need 90000 windows"));
+
+    mvc.perform(
+            post("/api/exports")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("export would need 90000 windows"));
+  }
+
+  @Test
+  void listsTheCallersExports() throws Exception {
+    when(exports.listFor(any(), org.mockito.ArgumentMatchers.anyInt()))
+        .thenReturn(List.of(job(java.util.UUID.randomUUID(), JobState.READY)));
+
+    mvc.perform(get("/api/exports").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].state").value("READY"));
+  }
+
+  @Test
+  void reportsProgressForOneExport() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
+        .thenReturn(java.util.Optional.of(job(id, JobState.RUNNING)));
+
+    mvc.perform(get("/api/exports/" + id).with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.windowsDone").value(2))
+        .andExpect(jsonPath("$.progress").value(0.25));
+  }
+
+  @Test
+  void reportsSomeoneElsesExportAsMissingRatherThanForbidden() throws Exception {
+    // Whether a job id exists is not the caller's business.
+    when(exports.findFor(any(), any())).thenReturn(java.util.Optional.empty());
+
+    mvc.perform(get("/api/exports/" + java.util.UUID.randomUUID()).with(alice()))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message").value("no such export"));
+  }
+
+  @Test
+  void acceptsACancellation() throws Exception {
+    when(exports.cancel(any(), any(), any())).thenReturn(true);
+
+    mvc.perform(post("/api/exports/" + java.util.UUID.randomUUID() + "/cancel").with(alice()).with(csrf()))
+        .andExpect(status().isAccepted());
+  }
+
+  @Test
+  void reportsCancellingSomethingThatIsNotRunningAsMissing() throws Exception {
+    when(exports.cancel(any(), any(), any())).thenReturn(false);
+
+    mvc.perform(post("/api/exports/" + java.util.UUID.randomUUID() + "/cancel").with(alice()).with(csrf()))
+        .andExpect(status().isNotFound());
   }
 
   @Test

@@ -42,6 +42,7 @@ class NamespaceControllerTest {
   @MockitoBean private NamespaceAuthorizer authorizer;
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private com.opentooling.loggate.export.ExportEstimator estimator;
+  @MockitoBean private com.opentooling.loggate.export.ExportService exports;
 
   /** A signed-in caller in the platform team. */
   private static OidcLoginRequestPostProcessor alice() {

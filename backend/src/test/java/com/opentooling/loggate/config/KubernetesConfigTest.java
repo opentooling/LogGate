@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 class KubernetesConfigTest {
 
   private static LogGateProperties properties() {
-    return new LogGateProperties(
+    return TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
             new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));
