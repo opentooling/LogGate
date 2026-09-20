@@ -59,7 +59,15 @@ class JobFinalizerTest {
         new ExportRequest(List.of("platform-dev"), null, null, null, FROM, FROM.plusSeconds(3600));
     return jobs.create(
         new NewJob(
-            request, "{}", "alice-subject", "alice", List.of("ad-platform-dev"), 1, 1, 3600),
+            request,
+            "{}",
+            "alice-subject",
+            "alice",
+            List.of("ad-platform-dev"),
+            List.of("platform"),
+            1,
+            1,
+            3600),
         List.of(new ExportWindow(0, FROM, FROM.plusSeconds(3600))));
   }
 

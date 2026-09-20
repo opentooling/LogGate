@@ -54,6 +54,8 @@ loggate:
     max-estimated-bytes: ${QUOTA_MAX_ESTIMATED_BYTES:53687091200}
     concurrent-per-user: ${QUOTA_CONCURRENT_PER_USER:2}
     concurrent-global: ${QUOTA_CONCURRENT_GLOBAL:10}
+    daily-bytes-per-team: ${QUOTA_DAILY_BYTES_PER_TEAM:536870912000}
+    budget-window: ${QUOTA_BUDGET_WINDOW:24h}
   execution:
     enabled: ${WORKERS_ENABLED:true}
     workers: ${WORKER_COUNT:4}

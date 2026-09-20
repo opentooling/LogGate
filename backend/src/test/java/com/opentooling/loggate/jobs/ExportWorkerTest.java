@@ -58,6 +58,7 @@ class ExportWorkerTest {
             "alice-subject",
             "alice",
             List.of("ad-platform-dev"),
+            List.of("platform"),
             1024,
             byteLimit,
             600),

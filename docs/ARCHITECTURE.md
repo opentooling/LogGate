@@ -289,11 +289,26 @@ Not one limit, but layers, because they fail differently:
 | Estimated bytes | At submit, from `index/volume_range` |
 | Hard byte cap, wall-clock deadline | Mid-extraction |
 | Concurrent jobs per user / per team / global | At claim |
-| Per-team daily exported volume | At submit |
+| Per-team exported volume, rolling 24h | At submit |
 | Artifact storage TTL | Swept, with an object-store lifecycle rule as backstop |
 
 The backstop matters: a sweeper that breaks silently must not mean production
 log data lives in a bucket forever.
+
+The team budget is **rolling**, not calendar: no midnight cliff, and no
+question about whose midnight. It counts what has been written *plus* the
+estimate of admitted-but-unfinished exports — counting only finished ones
+would let someone start ten large jobs at once and stay under budget purely
+because none had finished. Failed exports are excluded, since a team should not
+lose budget to something that produced nothing usable.
+
+An export spanning several teams is charged **in full to each**. A team that
+took part in pulling that data caused all of it, and splitting the cost would
+let one export slip under every budget it touches.
+
+Teams are resolved from the namespace labels at admission and stored on the
+job. The budget is an accounting question about the past, and re-deriving it
+later would let a relabelled namespace quietly rewrite who spent what.
 
 ## Failure modes
 

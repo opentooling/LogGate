@@ -49,6 +49,10 @@ quotas:
   # admit a genuinely big export for the multi-gigabyte verification.
   maxRange: 2d
   maxEstimatedBytes: 21474836480
+  # Generous, so ordinary local runs never hit it. e2e/quota-budget.sh tightens
+  # it temporarily to prove the refusal, then puts it back.
+  dailyBytesPerTeam: 21474836480
+  budgetWindow: 24h
 
 resources:
   requests:

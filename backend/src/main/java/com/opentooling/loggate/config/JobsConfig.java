@@ -47,7 +47,7 @@ public class JobsConfig {
 
   @Bean
   QuotaGuard quotaGuard(ExportJobRepository jobs, LogGateProperties properties) {
-    return new QuotaGuard(jobs, properties);
+    return new QuotaGuard(jobs, properties, Clock.systemUTC());
   }
 
   @Bean
@@ -67,9 +67,10 @@ public class JobsConfig {
       WindowPlanner planner,
       QuotaGuard quotas,
       ExportJobRepository jobs,
+      com.opentooling.loggate.namespaces.NamespaceCatalog namespaces,
       AuditService audit,
       ExportMetrics metrics) {
-    return new ExportService(estimator, planner, quotas, jobs, audit, metrics);
+    return new ExportService(estimator, planner, quotas, jobs, namespaces, audit, metrics);
   }
 
   @Bean

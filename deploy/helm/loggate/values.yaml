@@ -187,6 +187,10 @@ quotas:
   maxEstimatedBytes: 53687091200
   concurrentPerUser: 2
   concurrentGlobal: 10
+  # How much one team may export within budgetWindow. Charged in full to every
+  # team an export touches, and set to 0 to switch the budget off.
+  dailyBytesPerTeam: 536870912000
+  budgetWindow: 24h
 
 # -- Upstream Loki read endpoint.
 loki:

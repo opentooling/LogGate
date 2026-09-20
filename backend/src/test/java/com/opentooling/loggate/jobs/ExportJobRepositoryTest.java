@@ -55,6 +55,7 @@ class ExportJobRepositoryTest {
             subject,
             "alice",
             List.of("ad-platform-dev"),
+            List.of("platform"),
             1024,
             byteLimit,
             3600),
@@ -242,6 +243,47 @@ class ExportJobRepositoryTest {
     assertThat(repository.activeJobsFor("alice-subject")).isEqualTo(2);
     assertThat(repository.activeJobsFor("bob-subject")).isZero();
     assertThat(repository.activeJobs()).isEqualTo(2);
+  }
+
+  @Test
+  void countsATeamsRecentExportsForTheDailyBudget() {
+    UUID id = createJob(1);
+    repository.completeWindow(id, 0, 5_000, 10);
+
+    long used = repository.bytesExportedByTeamSince("platform", Instant.now().minusSeconds(3600));
+
+    assertThat(used).isGreaterThanOrEqualTo(5_000);
+    assertThat(repository.bytesExportedByTeamSince("payments", Instant.now().minusSeconds(3600)))
+        .isZero();
+  }
+
+  @Test
+  void countsAdmittedButUnfinishedExportsAtTheirEstimate() {
+    // Otherwise someone could start ten large exports at once and stay under
+    // budget purely because none of them had finished yet.
+    createJob(4);
+
+    assertThat(repository.bytesExportedByTeamSince("platform", Instant.now().minusSeconds(3600)))
+        .isEqualTo(1024);
+  }
+
+  @Test
+  void leavesFailedExportsOutOfTheBudget() {
+    // A team should not lose budget to an export that produced nothing usable.
+    UUID id = createJob(1);
+    repository.finish(id, JobState.FAILED, FailureCode.UPSTREAM_FAILED, "gave up");
+
+    assertThat(repository.bytesExportedByTeamSince("platform", Instant.now().minusSeconds(3600)))
+        .isZero();
+  }
+
+  @Test
+  void ignoresExportsOlderThanTheBudgetWindow() {
+    UUID id = createJob(1);
+    repository.completeWindow(id, 0, 5_000, 10);
+
+    assertThat(repository.bytesExportedByTeamSince("platform", Instant.now().plusSeconds(60)))
+        .isZero();
   }
 
   @Test

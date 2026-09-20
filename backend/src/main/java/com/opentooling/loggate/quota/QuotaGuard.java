@@ -4,7 +4,9 @@ import com.opentooling.loggate.config.LogGateProperties;
 import com.opentooling.loggate.export.ExportEstimate;
 import com.opentooling.loggate.export.ExportRequest;
 import com.opentooling.loggate.jobs.ExportJobRepository;
+import java.time.Clock;
 import java.time.Duration;
+import java.util.Collection;
 
 /**
  * Decides whether an export may run.
@@ -19,14 +21,17 @@ public class QuotaGuard {
 
   private final ExportJobRepository jobs;
   private final LogGateProperties.Quotas quotas;
+  private final Clock clock;
 
-  public QuotaGuard(ExportJobRepository jobs, LogGateProperties properties) {
+  public QuotaGuard(ExportJobRepository jobs, LogGateProperties properties, Clock clock) {
     this.jobs = jobs;
     this.quotas = properties.quotas();
+    this.clock = clock;
   }
 
   /** Checks {@code request} before it becomes a job. */
-  public QuotaDecision admit(String subject, ExportRequest request, ExportEstimate estimate) {
+  public QuotaDecision admit(
+      String subject, Collection<String> teams, ExportRequest request, ExportEstimate estimate) {
     Duration range = request.duration();
     if (range.compareTo(quotas.maxRange()) > 0) {
       return QuotaDecision.refused(
@@ -50,7 +55,48 @@ public class QuotaGuard {
           "%d exports are running across the platform, which is the limit; try again shortly"
               .formatted(all));
     }
+
+    QuotaDecision overBudget = checkDailyBudget(teams, estimate.estimatedBytes());
+    if (overBudget != null) {
+      return overBudget;
+    }
+
     return QuotaDecision.admitted(byteLimitFor(estimate.estimatedBytes()));
+  }
+
+  /**
+   * The team's exports over a rolling day.
+   *
+   * <p>Rolling rather than calendar so there is no midnight cliff and no
+   * question about whose midnight. A team that exports its budget in one go
+   * waits for it to age out rather than until an arbitrary boundary.
+   *
+   * <p>An export spanning several teams counts in full against each of them. A
+   * team that took part in pulling that data did cause all of it, and splitting
+   * the cost would let a multi-team export slip under every budget it touches.
+   *
+   * @return a refusal, or null when there is room
+   */
+  private QuotaDecision checkDailyBudget(Collection<String> teams, long estimatedBytes) {
+    if (quotas.dailyBytesPerTeam() <= 0) {
+      return null;
+    }
+    java.time.Instant since = clock.instant().minus(quotas.budgetWindow());
+    for (String team : teams) {
+      long used = jobs.bytesExportedByTeamSince(team, since);
+      if (used + estimatedBytes > quotas.dailyBytesPerTeam()) {
+        return QuotaDecision.refused(
+            ("%s has exported %s in the last %s and this would add %s, over the %s allowed."
+                    + " Wait for earlier exports to age out, or narrow this one.")
+                .formatted(
+                    team,
+                    bytes(used),
+                    humanise(quotas.budgetWindow()),
+                    bytes(estimatedBytes),
+                    bytes(quotas.dailyBytesPerTeam())));
+      }
+    }
+    return null;
   }
 
   /**

@@ -175,6 +175,12 @@ spec:
               value: {{ .Values.quotas.concurrentPerUser | quote }}
             - name: QUOTA_CONCURRENT_GLOBAL
               value: {{ .Values.quotas.concurrentGlobal | quote }}
+            - name: QUOTA_DAILY_BYTES_PER_TEAM
+              # int64 for the same reason as the size limit: YAML renders a
+              # large plain integer in scientific notation.
+              value: {{ .Values.quotas.dailyBytesPerTeam | int64 | quote }}
+            - name: QUOTA_BUDGET_WINDOW
+              value: {{ .Values.quotas.budgetWindow | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

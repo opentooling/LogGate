@@ -11,6 +11,7 @@ import java.util.List;
  * @param requestedBy OIDC subject of the caller
  * @param requestedByName display name
  * @param groups the caller's groups, snapshotted for the audit trail
+ * @param teams the teams that own the namespaces being exported
  * @param estimatedBytes what sizing predicted
  * @param byteLimit the cap the job is admitted under
  * @param windowSeconds the planned window duration
@@ -21,6 +22,7 @@ public record NewJob(
     String requestedBy,
     String requestedByName,
     List<String> groups,
+    List<String> teams,
     long estimatedBytes,
     long byteLimit,
     long windowSeconds) {}

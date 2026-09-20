@@ -56,7 +56,14 @@ public final class TestProperties {
 
   public static LogGateProperties.Quotas quotas() {
     return new LogGateProperties.Quotas(
-        Duration.ofDays(2), 50L * 1024 * 1024 * 1024, 2, 10, 1.25, 64L * 1024 * 1024);
+        Duration.ofDays(2),
+        50L * 1024 * 1024 * 1024,
+        2,
+        10,
+        1.25,
+        64L * 1024 * 1024,
+        500L * 1024 * 1024 * 1024,
+        Duration.ofHours(24));
   }
 
   public static LogGateProperties.Execution execution() {

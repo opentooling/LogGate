@@ -63,8 +63,10 @@ class ExportServiceTest {
     return new ExportService(
         new ExportEstimator(loki, new WindowPlanner(properties)),
         new WindowPlanner(properties),
-        new QuotaGuard(jobs, properties),
+        new QuotaGuard(jobs, properties, java.time.Clock.systemUTC()),
         jobs,
+        new com.opentooling.loggate.namespaces.FakeNamespaceCatalog()
+            .with("platform-dev", "platform", "ad-platform-dev"),
         audit,
         new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
   }

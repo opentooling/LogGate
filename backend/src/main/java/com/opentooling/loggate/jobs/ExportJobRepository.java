@@ -38,10 +38,10 @@ public class ExportJobRepository {
                   """
                   INSERT INTO export_job (
                     id, requested_by, requested_by_name, requested_by_groups, state,
-                    namespaces, pod_pattern, container_pattern, line_filter, selector,
+                    namespaces, teams, pod_pattern, container_pattern, line_filter, selector,
                     time_from, time_to, estimated_bytes, byte_limit, window_seconds,
                     windows_total)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                   """)
               .param(id)
               .param(job.requestedBy())
@@ -49,6 +49,7 @@ public class ExportJobRepository {
               .param(job.groups().toArray(String[]::new))
               .param(JobState.PLANNED.name())
               .param(job.request().namespaces().toArray(String[]::new))
+              .param(job.teams().toArray(String[]::new))
               .param(job.request().podPattern())
               .param(job.request().containerPattern())
               .param(job.request().lineFilter())
@@ -262,6 +263,31 @@ public class ExportJobRepository {
             """)
         .query(UUID.class)
         .list();
+  }
+
+  /**
+   * Bytes a team has exported since {@code since}, for the daily budget.
+   *
+   * <p>Counts what was actually written, plus what admitted-but-unfinished jobs
+   * are expected to write. Counting only finished exports would let someone
+   * start ten large jobs at once and stay under budget by virtue of none of
+   * them having finished.
+   */
+  public long bytesExportedByTeamSince(String team, Instant since) {
+    return db.sql(
+            """
+            SELECT COALESCE(SUM(GREATEST(bytes_written, CASE WHEN state = ANY(?)
+                                                             THEN estimated_bytes ELSE 0 END)), 0)
+              FROM export_job
+             WHERE teams @> ARRAY[?]::text[]
+               AND created_at >= ?
+               AND state <> 'FAILED'
+            """)
+        .param(JobState.activeNames().toArray(String[]::new))
+        .param(team)
+        .param(java.sql.Timestamp.from(since))
+        .query(Long.class)
+        .single();
   }
 
   /** How many jobs the caller has in flight, for the concurrency quota. */

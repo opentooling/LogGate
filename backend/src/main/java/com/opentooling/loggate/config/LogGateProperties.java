@@ -30,6 +30,9 @@ public record LogGateProperties(
    *     because a live namespace keeps receiving logs while the export runs
    * @param minimumByteLimit floor for the runtime cap, so small exports are not
    *     failed by a tiny estimate
+   * @param dailyBytesPerTeam how much one team may export within
+   *     {@code budgetWindow}; zero or less switches the budget off
+   * @param budgetWindow the rolling window the budget is measured over
    */
   public record Quotas(
       @DefaultValue("2d") Duration maxRange,
@@ -37,7 +40,9 @@ public record LogGateProperties(
       @DefaultValue("2") int concurrentPerUser,
       @DefaultValue("10") int concurrentGlobal,
       @DefaultValue("1.25") double byteLimitHeadroom,
-      @DefaultValue("67108864") long minimumByteLimit) {}
+      @DefaultValue("67108864") long minimumByteLimit,
+      @DefaultValue("536870912000") long dailyBytesPerTeam,
+      @DefaultValue("24h") Duration budgetWindow) {}
 
   /**
    * @param enabled whether this pod runs workers at all
