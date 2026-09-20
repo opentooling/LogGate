@@ -27,6 +27,7 @@ public class JobFinalizer {
   private final tools.jackson.databind.ObjectMapper json;
   private final Duration retention;
   private final Clock clock;
+  private final com.opentooling.loggate.observability.ExportMetrics metrics;
 
   public JobFinalizer(
       ExportJobRepository jobs,
@@ -34,13 +35,15 @@ public class JobFinalizer {
       ManifestBuilder manifests,
       tools.jackson.databind.ObjectMapper json,
       Duration retention,
-      Clock clock) {
+      Clock clock,
+      com.opentooling.loggate.observability.ExportMetrics metrics) {
     this.jobs = jobs;
     this.store = store;
     this.manifests = manifests;
     this.json = json;
     this.retention = retention;
     this.clock = clock;
+    this.metrics = metrics;
   }
 
   /**
@@ -66,6 +69,7 @@ public class JobFinalizer {
       }
       jobs.setExpiry(id, clock.instant().plus(retention));
       jobs.finish(id, JobState.READY, null, null);
+      metrics.finished("READY", null);
       log.info("job {} is ready, expiring in {}", id, retention);
       published++;
     }
@@ -128,6 +132,7 @@ public class JobFinalizer {
         continue;
       }
       jobs.finish(id, JobState.CANCELLED, null, "cancelled by request");
+      metrics.finished("CANCELLED", null);
       log.info("job {} cancelled and its artifacts purged", id);
       closed++;
     }

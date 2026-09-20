@@ -30,8 +30,13 @@ dependencies {
   implementation 'org.springframework.boot:spring-boot-starter-validation'
   implementation 'org.springframework.boot:spring-boot-starter-jdbc'
   implementation 'org.springframework.boot:spring-boot-starter-actuator'
+  runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
   implementation 'org.springframework.boot:spring-boot-starter-liquibase'
   implementation 'org.springframework.boot:spring-boot-starter-security'
+  // Sessions shared through PostgreSQL, so login survives a rolling update and
+  // more than one replica. Serialized as JSON, not Java: Spring Security 7's
+  // authorization request is not Serializable.
+  implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
   implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
   implementation 'io.fabric8:kubernetes-client:7.9.0'
   implementation platform("software.amazon.awssdk:bom:2.55.1")

@@ -7,6 +7,7 @@ import com.opentooling.loggate.config.JobsConfig;
 import com.opentooling.loggate.config.KubernetesConfig;
 import com.opentooling.loggate.config.LogGateProperties;
 import com.opentooling.loggate.config.SecurityConfig;
+import com.opentooling.loggate.config.SessionConfig;
 import com.opentooling.loggate.config.WebConfig;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.SpringBootConfiguration;
@@ -24,6 +25,7 @@ import org.springframework.context.annotation.Import;
 @EnableConfigurationProperties(LogGateProperties.class)
 @Import({
   SecurityConfig.class,
+  SessionConfig.class,
   KubernetesConfig.class,
   AuthorizationConfig.class,
   ExportConfig.class,

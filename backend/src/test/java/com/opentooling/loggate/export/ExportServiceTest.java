@@ -65,7 +65,8 @@ class ExportServiceTest {
         new WindowPlanner(properties),
         new QuotaGuard(jobs, properties),
         jobs,
-        audit);
+        audit,
+        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
   }
 
   private static ExportRequest request(Duration range) {

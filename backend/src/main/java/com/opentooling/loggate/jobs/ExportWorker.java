@@ -3,6 +3,7 @@ package com.opentooling.loggate.jobs;
 import com.opentooling.loggate.export.EntryWriter;
 import com.opentooling.loggate.export.ExportWindow;
 import com.opentooling.loggate.export.WindowPager;
+import com.opentooling.loggate.observability.ExportMetrics;
 import com.opentooling.loggate.storage.ObjectStore;
 import com.opentooling.loggate.storage.PartKeys;
 import java.time.Duration;
@@ -31,6 +32,7 @@ public class ExportWorker {
   private final Duration lease;
   private final int maxAttempts;
   private final long checkEveryEntries;
+  private final ExportMetrics metrics;
 
   public ExportWorker(
       ExportJobRepository jobs,
@@ -39,8 +41,9 @@ public class ExportWorker {
       ObjectMapper json,
       String owner,
       Duration lease,
-      int maxAttempts) {
-    this(jobs, pager, store, json, owner, lease, maxAttempts, 5_000);
+      int maxAttempts,
+      ExportMetrics metrics) {
+    this(jobs, pager, store, json, owner, lease, maxAttempts, 5_000, metrics);
   }
 
   /**
@@ -56,7 +59,8 @@ public class ExportWorker {
       String owner,
       Duration lease,
       int maxAttempts,
-      long checkEveryEntries) {
+      long checkEveryEntries,
+      ExportMetrics metrics) {
     this.jobs = jobs;
     this.pager = pager;
     this.store = store;
@@ -65,6 +69,7 @@ public class ExportWorker {
     this.lease = lease;
     this.maxAttempts = maxAttempts;
     this.checkEveryEntries = checkEveryEntries;
+    this.metrics = metrics;
   }
 
   /**
@@ -84,6 +89,7 @@ public class ExportWorker {
   private void run(ClaimedWindow window) {
     String key = PartKeys.part(window.jobId(), window.index());
     var counters = new Counters();
+    long startedAt = System.nanoTime();
     try {
       long storedBytes =
           store.put(
@@ -118,6 +124,8 @@ public class ExportWorker {
       jobs.recordArtifact(
           window.jobId(), "PART", key, storedBytes, counters.sha256, counters.crc32);
       jobs.completeWindow(window.jobId(), window.index(), counters.bytes, counters.entries);
+      metrics.windowCompleted(
+          Duration.ofNanos(System.nanoTime() - startedAt), counters.entries, counters.bytes);
       log.debug(
           "window {} of job {} wrote {} entries ({} bytes)",
           window.index(),
@@ -128,17 +136,25 @@ public class ExportWorker {
     } catch (ExportCancelledException e) {
       // The job is stopping; leave the window for the closer to tidy up.
       log.info("window {} of job {} abandoned: cancelled", window.index(), window.jobId());
+      metrics.windowFailed("cancelled");
       jobs.failWindow(window.jobId(), window.index(), "cancelled", maxAttempts);
 
     } catch (ByteLimitExceededException e) {
       // Fail the job, not just the window: every other window is now pointless.
       log.warn("job {} exceeded its byte limit", window.jobId());
+      metrics.windowFailed("byte_limit");
+      metrics.finished("FAILED", FailureCode.BYTE_LIMIT_EXCEEDED.name());
       jobs.failWindow(window.jobId(), window.index(), e.getMessage(), maxAttempts);
       jobs.finish(window.jobId(), JobState.FAILED, FailureCode.BYTE_LIMIT_EXCEEDED, e.getMessage());
 
     } catch (RuntimeException e) {
       String message = e.getMessage() == null ? e.toString() : e.getMessage();
       boolean exhausted = jobs.failWindow(window.jobId(), window.index(), message, maxAttempts);
+      FailureCode code =
+          e instanceof java.io.UncheckedIOException
+              ? FailureCode.STORAGE_FAILED
+              : FailureCode.UPSTREAM_FAILED;
+      metrics.windowFailed(code.name().toLowerCase(java.util.Locale.ROOT));
       log.warn(
           "window {} of job {} failed on attempt {}{}",
           window.index(),
@@ -147,13 +163,8 @@ public class ExportWorker {
           exhausted ? ", giving up" : ", will retry",
           e);
       if (exhausted) {
-        jobs.finish(
-            window.jobId(),
-            JobState.FAILED,
-            e instanceof java.io.UncheckedIOException
-                ? FailureCode.STORAGE_FAILED
-                : FailureCode.UPSTREAM_FAILED,
-            message);
+        jobs.finish(window.jobId(), JobState.FAILED, code, message);
+        metrics.finished("FAILED", code.name());
       }
     }
   }

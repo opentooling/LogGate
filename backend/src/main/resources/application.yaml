@@ -10,6 +10,11 @@ spring:
     password: ${DATABASE_PASSWORD:loggate}
     hikari:
       maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+  session:
+    jdbc:
+      # Liquibase owns the schema, including Spring Session's tables.
+      initialize-schema: never
+    timeout: ${SESSION_TIMEOUT:8h}
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
   security:

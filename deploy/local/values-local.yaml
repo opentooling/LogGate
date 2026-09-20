@@ -2,6 +2,10 @@ image:
   repository: loggate
   pullPolicy: Never
 
+# Two replicas locally as well, so the shared-session path is what gets
+# exercised rather than an accident of running a single pod.
+replicaCount: 2
+
 ingress:
   enabled: true
   className: nginx

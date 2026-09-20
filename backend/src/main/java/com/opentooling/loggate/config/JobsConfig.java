@@ -9,6 +9,7 @@ import com.opentooling.loggate.jobs.ExportJobRepository;
 import com.opentooling.loggate.jobs.ExportWorker;
 import com.opentooling.loggate.jobs.JobFinalizer;
 import com.opentooling.loggate.jobs.WorkerRunner;
+import com.opentooling.loggate.observability.ExportMetrics;
 import com.opentooling.loggate.quota.QuotaGuard;
 import com.opentooling.loggate.storage.ObjectStore;
 import java.net.URI;
@@ -50,13 +51,25 @@ public class JobsConfig {
   }
 
   @Bean
+  ExportMetrics exportMetrics(io.micrometer.core.instrument.MeterRegistry registry) {
+    return new ExportMetrics(registry);
+  }
+
+  @Bean
+  com.opentooling.loggate.observability.QueueGauges queueGauges(
+      io.micrometer.core.instrument.MeterRegistry registry, ExportJobRepository jobs) {
+    return new com.opentooling.loggate.observability.QueueGauges(registry, jobs);
+  }
+
+  @Bean
   ExportService exportService(
       ExportEstimator estimator,
       WindowPlanner planner,
       QuotaGuard quotas,
       ExportJobRepository jobs,
-      AuditService audit) {
-    return new ExportService(estimator, planner, quotas, jobs, audit);
+      AuditService audit,
+      ExportMetrics metrics) {
+    return new ExportService(estimator, planner, quotas, jobs, audit, metrics);
   }
 
   @Bean
@@ -112,13 +125,14 @@ public class JobsConfig {
       WindowPager pager,
       ObjectStore store,
       ObjectMapper json,
-      LogGateProperties properties) {
+      LogGateProperties properties,
+      ExportMetrics metrics) {
     LogGateProperties.Execution execution = properties.execution();
     // The owner identifies which process holds a lease, so a human reading the
     // table can tell a stuck worker from a busy one.
     String owner = System.getenv().getOrDefault("HOSTNAME", "local") + "/" + UUID.randomUUID();
     return new ExportWorker(
-        jobs, pager, store, json, owner, execution.lease(), execution.maxAttempts());
+        jobs, pager, store, json, owner, execution.lease(), execution.maxAttempts(), metrics);
   }
 
   @Bean
@@ -138,9 +152,16 @@ public class JobsConfig {
       ObjectStore store,
       com.opentooling.loggate.delivery.ManifestBuilder manifests,
       ObjectMapper json,
-      LogGateProperties properties) {
+      LogGateProperties properties,
+      ExportMetrics metrics) {
     return new JobFinalizer(
-        jobs, store, manifests, json, properties.execution().retention(), Clock.systemUTC());
+        jobs,
+        store,
+        manifests,
+        json,
+        properties.execution().retention(),
+        Clock.systemUTC(),
+        metrics);
   }
 
   /** Workers run unless switched off, which is what the web slice tests do. */

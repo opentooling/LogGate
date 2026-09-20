@@ -8,7 +8,15 @@ CLUSTER="${CLUSTER:-loggate}"
 APP_NS="${APP_NS:-loggate}"
 OBS_NS="${OBS_NS:-observability}"
 IMAGE="${IMAGE:-loggate}"
-TAG="${TAG:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || date +%s)}"
+# A dirty tree gets a unique tag. Otherwise an uncommitted change rebuilds the
+# image under the same tag, Helm sees an unchanged pod spec, and the running
+# pods keep the old code - which looks exactly like the change not working.
+if [[ -z "${TAG:-}" ]]; then
+  TAG="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo untracked)"
+  if ! git -C "$REPO_ROOT" diff --quiet HEAD 2>/dev/null; then
+    TAG="${TAG}-dirty-$(date +%H%M%S)"
+  fi
+fi
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 

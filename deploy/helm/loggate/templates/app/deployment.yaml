@@ -8,11 +8,8 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   {{- /*
-    The OAuth2 authorization request is held in an in-memory HTTP session
-    between the redirect to Keycloak and the callback. Two pods serving at once
-    therefore break login, which a rolling update guarantees briefly. Recreate
-    trades a few seconds of downtime for a login flow that always completes.
-    Lift this together with replicaCount once sessions are shared.
+    Sessions live in PostgreSQL, so more than one pod can serve and a login in
+    flight survives a rolling update.
   */}}
   strategy:
     type: {{ .Values.updateStrategy }}

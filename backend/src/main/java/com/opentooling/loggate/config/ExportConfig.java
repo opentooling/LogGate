@@ -32,8 +32,17 @@ public class ExportConfig {
   }
 
   @Bean
-  LokiClient lokiClient(RestClient lokiRestClient, ObjectMapper json, LogGateProperties properties) {
-    return new HttpLokiClient(lokiRestClient, json, properties, duration -> Thread.sleep(duration));
+  LokiClient lokiClient(
+      RestClient lokiRestClient,
+      ObjectMapper json,
+      LogGateProperties properties,
+      com.opentooling.loggate.observability.ExportMetrics metrics) {
+    return new HttpLokiClient(
+        lokiRestClient,
+        json,
+        properties,
+        duration -> Thread.sleep(duration),
+        status -> metrics.lokiThrottled());
   }
 
   @Bean

@@ -28,18 +28,21 @@ public class ExportService {
   private final QuotaGuard quotas;
   private final ExportJobRepository jobs;
   private final AuditService audit;
+  private final com.opentooling.loggate.observability.ExportMetrics metrics;
 
   public ExportService(
       ExportEstimator estimator,
       WindowPlanner planner,
       QuotaGuard quotas,
       ExportJobRepository jobs,
-      AuditService audit) {
+      AuditService audit,
+      com.opentooling.loggate.observability.ExportMetrics metrics) {
     this.estimator = estimator;
     this.planner = planner;
     this.quotas = quotas;
     this.jobs = jobs;
     this.audit = audit;
+    this.metrics = metrics;
   }
 
   /** The outcome of submitting an export.
@@ -70,6 +73,7 @@ public class ExportService {
               "estimatedBytes", estimate.estimatedBytes(),
               "reason", decision.reason()),
           sourceIp);
+      metrics.submission("refused", "quota");
       return new Submission(null, decision.reason(), estimate);
     }
 
@@ -99,6 +103,7 @@ public class ExportService {
             "windows", plan.windowCount()),
         sourceIp);
 
+    metrics.submission("accepted", "none");
     return new Submission(jobs.find(id).orElseThrow(), null, estimate);
   }
 

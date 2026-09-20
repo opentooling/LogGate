@@ -37,6 +37,7 @@ public class HttpLokiClient implements LokiClient {
   private final ObjectMapper json;
   private final String tenantId;
   private final Sleeper sleeper;
+  private final java.util.function.Consumer<String> onThrottle;
 
   /** Pauses between retries. Injected so tests do not actually wait. */
   @FunctionalInterface
@@ -46,10 +47,24 @@ public class HttpLokiClient implements LokiClient {
 
   public HttpLokiClient(
       RestClient http, ObjectMapper json, LogGateProperties properties, Sleeper sleeper) {
+    this(http, json, properties, sleeper, reason -> {});
+  }
+
+  /**
+   * @param onThrottle called when Loki pushes back, so back-pressure is
+   *     visible as a metric rather than only as a slow export
+   */
+  public HttpLokiClient(
+      RestClient http,
+      ObjectMapper json,
+      LogGateProperties properties,
+      Sleeper sleeper,
+      java.util.function.Consumer<String> onThrottle) {
     this.http = http;
     this.json = json;
     this.tenantId = properties.loki().tenantId();
     this.sleeper = sleeper;
+    this.onThrottle = onThrottle;
   }
 
   @Override
@@ -134,6 +149,7 @@ public class HttpLokiClient implements LokiClient {
               "Loki returned %d: %s".formatted(e.getStatusCode().value(), e.getStatusText()), e);
         }
         last = e;
+        onThrottle.accept(Integer.toString(e.getStatusCode().value()));
         Duration wait = retryAfter(e.getResponseHeaders()).orElse(backoff);
         log.warn(
             "Loki returned {}, retrying in {} (attempt {}/{})",

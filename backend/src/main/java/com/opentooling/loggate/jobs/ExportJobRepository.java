@@ -282,6 +282,32 @@ public class ExportJobRepository {
         .single();
   }
 
+  /** Windows waiting to be claimed, for the queue-depth gauge. */
+  public int pendingWindows() {
+    return db.sql(
+            """
+            SELECT count(*)::int FROM export_window w
+              JOIN export_job j ON j.id = w.job_id
+             WHERE w.state IN ('PENDING', 'CLAIMED')
+               AND (w.lease_expires_at IS NULL OR w.lease_expires_at < now())
+               AND j.state IN ('PLANNED', 'RUNNING')
+               AND NOT j.cancel_requested
+            """)
+        .query(Integer.class)
+        .single();
+  }
+
+  /** Windows held under a live lease, for the in-flight gauge. */
+  public int runningWindows() {
+    return db.sql(
+            """
+            SELECT count(*)::int FROM export_window
+             WHERE state = 'CLAIMED' AND lease_expires_at > now()
+            """)
+        .query(Integer.class)
+        .single();
+  }
+
   /** One job, whoever owns it. */
   public Optional<ExportJob> find(UUID id) {
     return db.sql(SELECT_JOB + " WHERE id = ?").param(id).query(this::toJob).optional();

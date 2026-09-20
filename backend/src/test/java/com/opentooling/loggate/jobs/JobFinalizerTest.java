@@ -45,7 +45,8 @@ class JobFinalizerTest {
         new com.opentooling.loggate.delivery.ManifestBuilder(jobs, Clock.fixed(NOW, ZoneOffset.UTC)),
         json,
         Duration.ofHours(48),
-        Clock.fixed(NOW, ZoneOffset.UTC));
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
   }
 
   @BeforeEach

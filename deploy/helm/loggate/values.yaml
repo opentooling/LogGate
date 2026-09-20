@@ -4,14 +4,12 @@ image:
   tag: ""          # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
-# -- API replicas. Must stay at 1 until sessions are shared between pods: the
-# OAuth2 authorization request lives in an in-memory session, so a login that
-# starts on one pod and completes on another fails. See docs/ARCHITECTURE.md.
-replicaCount: 1
+# -- API replicas. Sessions are shared through PostgreSQL, so a login that
+# starts on one pod and finishes on another works, and a rolling update does
+# not interrupt one in flight.
+replicaCount: 2
 
-# -- Recreate rather than RollingUpdate, for the same reason: a rolling update
-# briefly runs two pods, and a login in flight across both of them fails.
-updateStrategy: Recreate
+updateStrategy: RollingUpdate
 
 # -- Extra pod/container hardening. Set openShift=true to drop the explicit
 # uid/gid and let the restricted-v2 SCC assign them.

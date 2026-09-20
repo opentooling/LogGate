@@ -78,7 +78,8 @@ class ExportWorkerTest {
         "test-worker",
         Duration.ofMinutes(2),
         maxAttempts,
-        checkEvery);
+        checkEvery,
+        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
   }
 
   private static String unzip(byte[] gzipped) {
