@@ -1,5 +1,7 @@
 # LogGate
 
+[![CI](https://github.com/jugash/LogGate/actions/workflows/ci.yml/badge.svg)](https://github.com/jugash/LogGate/actions/workflows/ci.yml)
+
 Governed bulk log export for Grafana Loki.
 
 Grafana is where teams read their logs. LogGate is for the other case: a team
@@ -84,8 +86,9 @@ Re-running the script after a code change rebuilds and upgrades in place; pass
 
 ```bash
 e2e/auth-flow.sh        # authentication and the authorization matrix
-e2e/export-estimate.sh  # export sizing against a real Loki
+e2e/export-estimate.sh  # export sizing and the published quota
 e2e/export-run.sh       # an export run to completion, with parts in MinIO
+e2e/retention.sh        # download links expire; retention deletes the data
 e2e/quota-budget.sh     # the per-team daily budget, refused and restored
 
 cd ui && npx playwright test   # the UI, through the real login and a real export
@@ -93,8 +96,24 @@ cd ui && npx playwright test   # the UI, through the real login and a real expor
 
 Both drive the real OIDC authorization code flow through Keycloak with a cookie
 jar and assert against the deployed stack, including the cases that must be
-**refused** and the audit rows they produce. `export-estimate.sh` needs seeded
-logs, so run `deploy/local/seed-logs.sh` first and give Loki a minute.
+**refused** and the audit rows they produce. The export suites need seeded
+logs: run `deploy/local/seed-logs.sh`, then `e2e/wait-for-logs.sh`, which
+returns once Loki can actually serve them.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
+`main` and every pull request:
+
+| Job | What it proves |
+| --- | --- |
+| Build and test | `./gradlew check` — unit and Testcontainers integration tests, the 95% line and branch gate, the UI tests and build — then the Jib image |
+| Helm chart | the chart lints, and `extraObjects` renders in both of its forms |
+| Architecture model | `docs/architecture.calm.json` validates with the FINOS CALM CLI |
+| End-to-end on k3d | the whole stack deployed to a fresh cluster by `deploy/local/deploy.sh`, then every suite above, including Playwright |
+
+The end-to-end job runs only once the build and chart jobs pass, and on failure
+keeps the pod logs, cluster events and Playwright traces as a run artifact.
 
 ### Demo users
 

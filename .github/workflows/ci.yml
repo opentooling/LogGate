@@ -1,0 +1,252 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request makes the older run pointless. On main every
+# commit keeps its own result, so a red build can be traced to the commit that
+# caused it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  JAVA_VERSION: '25'
+  NODE_VERSION: '22'
+  HELM_VERSION: v3.22.0
+  K3D_VERSION: v5.9.0
+  K3D_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+  CALM_CLI_VERSION: 1.60.1
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # Unit and integration tests (PostgreSQL and MinIO in Testcontainers),
+      # the 95% line and branch coverage gate, and the UI's own tests and build.
+      - name: Check
+        run: ./gradlew check
+
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import pathlib, re
+          report = pathlib.Path("backend/build/reports/jacoco/test/jacocoTestReport.xml")
+          if not report.exists():
+              print("No coverage report was produced.")
+              raise SystemExit
+          # The report-level counters are the last ones in the file.
+          tail = report.read_text()[-600:]
+          print("| Counter | Covered | Gate |\n|---|---|---|")
+          for kind, missed, covered in re.findall(r'type="(LINE|BRANCH)" missed="(\d+)" covered="(\d+)"', tail):
+              total = int(missed) + int(covered)
+              print(f"| {kind.title()} | {100 * int(covered) / total:.2f}% ({covered}/{total}) | 95% |")
+          PY
+
+      # Jib builds the image straight from the classes, with no Docker daemon
+      # and no Dockerfile. Built here so an image that cannot be built fails
+      # the change that broke it, not a later deploy.
+      - name: Build the image
+        run: ./gradlew :backend:jibBuildTar --no-configuration-cache -PimageTag=${{ github.sha }}
+
+      - name: Keep the reports of a failed build
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-reports
+          path: |
+            backend/build/reports/
+            backend/build/test-results/
+          retention-days: 14
+
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Lint with the defaults
+        run: helm lint deploy/helm/loggate
+
+      - name: Lint with the local values and extraObjects
+        run: |
+          helm lint deploy/helm/loggate \
+            -f deploy/local/values-local.yaml \
+            -f deploy/helm/loggate/ci/extra-objects-values.yaml
+
+      # extraObjects is a feature, so it is proven to render rather than
+      # assumed: once as a YAML object and once as a templated string, each
+      # resolving the release's own helpers.
+      - name: Render extraObjects
+        run: |
+          helm template ci deploy/helm/loggate -n ci \
+            -f deploy/local/values-local.yaml \
+            -f deploy/helm/loggate/ci/extra-objects-values.yaml > rendered.yaml
+          grep -q "name: 'loggate-ci-object'" rendered.yaml
+          grep -q 'name: loggate-ci-string' rendered.yaml
+          grep -q 'rendered: "yes"' rendered.yaml
+          echo "Both extraObjects forms rendered."
+
+  architecture:
+    name: Architecture model
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The CALM model is the structural source of truth for the architecture,
+      # so a change that breaks it fails like any other.
+      - name: Validate the CALM model
+        run: npx --yes "@finos/calm-cli@${CALM_CLI_VERSION}" validate -a docs/architecture.calm.json
+
+  e2e:
+    name: End-to-end on k3d
+    # Only worth a real cluster once the cheaper checks pass.
+    needs: [build, chart]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      # Loki, Grafana, MinIO, Keycloak, PostgreSQL and two replicas of the
+      # application, plus the build, do not fit comfortably in a stock runner's
+      # free disk. Toolchains this job never uses are the cheapest room to make.
+      - name: Make room on the runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      # A pinned release, checked against its published digest, rather than
+      # piping an install script from the internet into a shell.
+      - name: Install k3d
+        run: |
+          curl -sSfL -o k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          echo "${K3D_SHA256}  k3d" | sha256sum --check
+          sudo install -m 0755 k3d /usr/local/bin/k3d
+          rm k3d
+          k3d version
+
+      # The build job has already run the suite; this deploys what it tested.
+      - name: Deploy the stack and LogGate
+        id: deploy
+        env:
+          SKIP_CHECKS: '1'
+        run: deploy/local/deploy.sh
+
+      - name: Seed labelled namespaces with logs
+        id: seed
+        run: |
+          deploy/local/seed-logs.sh
+          kubectl rollout status deploy/platform-api -n platform-dev --timeout=180s
+          kubectl rollout status deploy/payments-api -n payments-dev --timeout=180s
+          e2e/wait-for-logs.sh platform-dev
+
+      # Each suite is its own step so the run shows which one failed, and each
+      # runs even if an earlier one did, so a single failure does not hide the
+      # rest of the picture.
+      - name: Authentication and authorization
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/auth-flow.sh
+
+      - name: Export estimation
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/export-estimate.sh
+
+      - name: Export execution
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/export-run.sh
+
+      - name: Retention and link expiry
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/retention.sh
+
+      - name: Install Playwright's browser
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        working-directory: ui
+        run: npx playwright install --with-deps chromium
+
+      - name: UI in a real browser
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        working-directory: ui
+        env:
+          CI: 'true'
+        run: npx playwright test
+
+      # Last, because it reconfigures and restarts the application to tighten
+      # the budget, and every other suite should see it as deployed.
+      - name: Per-team daily budget
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/quota-budget.sh
+
+      - name: Describe the cluster
+        if: failure()
+        run: |
+          mkdir -p diagnostics
+          kubectl get pods -A -o wide > diagnostics/pods.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diagnostics/events.txt 2>&1 || true
+          for ns in loggate observability ingress-nginx; do
+            for pod in $(kubectl get pods -n "$ns" -o name 2>/dev/null); do
+              kubectl logs -n "$ns" "$pod" --all-containers --tail=500 \
+                > "diagnostics/${ns}_${pod#pod/}.log" 2>&1 || true
+            done
+          done
+
+      - name: Keep the evidence of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-diagnostics
+          path: |
+            diagnostics/
+            ui/test-results/
+          retention-days: 14

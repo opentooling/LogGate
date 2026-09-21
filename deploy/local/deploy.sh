@@ -111,8 +111,14 @@ else
 fi
 
 # --- build ------------------------------------------------------------------
-log "Building and testing the backend"
-"$REPO_ROOT/gradlew" -p "$REPO_ROOT" check
+# CI runs the checks in a job of their own and deploys only once they pass, so
+# it skips them here rather than paying for the whole suite twice.
+if [[ "${SKIP_CHECKS:-0}" != "1" ]]; then
+  log "Building and testing the backend"
+  "$REPO_ROOT/gradlew" -p "$REPO_ROOT" check
+else
+  log "SKIP_CHECKS=1 — building without running the test suite"
+fi
 
 # Jib builds the image from the compiled classes with no container runtime and
 # no Dockerfile, straight to a tarball that k3d can import.

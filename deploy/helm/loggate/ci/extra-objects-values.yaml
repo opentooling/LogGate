@@ -1,0 +1,18 @@
+# Rendered in CI to prove extraObjects works in both of its forms: a YAML
+# object and a templated string, each able to reach the release's own helpers.
+extraObjects:
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: '{{ include "loggate.fullname" $ }}-ci-object'
+    spec:
+      podSelector: {}
+      policyTypes: [Ingress]
+  - |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: {{ include "loggate.fullname" $ }}-ci-string
+      namespace: {{ .Release.Namespace }}
+    data:
+      rendered: "yes"
