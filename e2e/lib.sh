@@ -9,7 +9,24 @@ pass=0
 fail=0
 
 ok()  { printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }
-bad() { printf '  \033[31mFAIL\033[0m %s\n     expected: %s\n     actual:   %s\n' "$1" "$2" "$3"; fail=$((fail+1)); }
+bad() {
+  printf '  \033[31mFAIL\033[0m %s\n     expected: %s\n     actual:   %s\n' "$1" "$2" "$3"
+  annotate "$1 — expected: $2, actual: $3"
+  fail=$((fail+1))
+}
+
+# Under GitHub Actions, a failed check is also raised as an error annotation.
+# Annotations appear on the run summary and on a pull request's diff, so the
+# failing check is named where people look, without opening the step's log.
+annotate() {
+  [[ -n "${GITHUB_ACTIONS:-}" ]] || return 0
+  local message="$1"
+  # The workflow command format reserves these characters.
+  message="${message//'%'/%25}"
+  message="${message//$'\r'/%0D}"
+  message="${message//$'\n'/%0A}"
+  printf '::error title=%s::%s\n' "$(basename "$0")" "$message"
+}
 
 check() { # check <description> <expected> <actual>
   if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1" "$2" "$3"; fi
@@ -55,6 +72,7 @@ login() {
       printf '     no login form was served; the first 200 characters were:\n     %s\n' \
         "$(printf '%s' "$login_page" | tr -d '\n' | cut -c1-200)"
     fi
+    annotate "could not sign in as $user (/api/me returned $code)"
     fail=$((fail+1))
     return 1
   fi

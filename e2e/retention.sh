@@ -66,13 +66,49 @@ check "signed for the configured lifetime" "X-Amz-Expires=1800" \
   "$(printf '%s' "$URL" | tr '&' '\n' | grep '^X-Amz-Expires=')"
 check "and it works right now" "200" "$(curl -s -o /dev/null -w '%{http_code}' "$URL")"
 
-# Signed for a fixed window, so the link can simply be outlived rather than
-# reconfiguring anything. The application's own lifetime is separately
-# configurable; this proves the storage enforces what was signed.
+# Changing the expiry on a signed link breaks its signature, so the storage
+# refuses it. That proves the link cannot be extended by editing it; it says
+# nothing about expiry.
+TAMPERED="$(printf '%s' "$URL" | sed -E 's/X-Amz-Expires=[0-9]+/X-Amz-Expires=604800/')"
+check "a link altered to live longer is refused" "403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$TAMPERED")"
+
+# Expiry itself: shorten the configured lifetime, take a genuinely signed link,
+# and outlive it. The deployment is put back afterwards, even on failure.
+echo
+echo "a link that has outlived its lifetime is refused"
+ORIGINAL_LIFETIME="$(kubectl --context "$CONTEXT" get deploy loggate -n "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="S3_PRESIGNED_URL_LIFETIME")].value}' 2>/dev/null)"
+restore_lifetime() {
+  if [[ -n "${ORIGINAL_LIFETIME:-}" ]]; then
+    kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" \
+      "S3_PRESIGNED_URL_LIFETIME=$ORIGINAL_LIFETIME" >/dev/null 2>&1
+    kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1
+  fi
+}
+trap restore_lifetime EXIT
+
+LIFETIME=15
+kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" \
+  "S3_PRESIGNED_URL_LIFETIME=${LIFETIME}s" >/dev/null 2>&1
+kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1
+login alice "$JAR" >/dev/null
+
 SHORT="$(body "$(api "$JAR" GET "/api/exports/$JOB/downloads")" | jq_get 'd[0]["url"]')"
-EXPIRED="$(printf '%s' "$SHORT" | sed -E 's/X-Amz-Expires=[0-9]+/X-Amz-Expires=1/')"
-code="$(curl -s -o /dev/null -w '%{http_code}' "$EXPIRED")"
-check "a link whose window has passed is refused" "403" "$code"
+check "the link is signed for the shortened lifetime" "X-Amz-Expires=$LIFETIME" \
+  "$(printf '%s' "$SHORT" | tr '&' '\n' | grep '^X-Amz-Expires=')"
+check "it works while it is valid" "200" "$(curl -s -o /dev/null -w '%{http_code}' "$SHORT")"
+sleep $((LIFETIME + 5))
+response="$(curl -s -w '\n%{http_code}' "$SHORT")"
+check "it is refused once it has expired" "403" "$(status "$response")"
+# A refusal for any other reason, such as a bad signature, would also be a 403,
+# so the storage's own explanation is checked too.
+check "and refused because it expired" "yes" \
+  "$(body "$response" | grep -qi 'expired' && echo yes || echo no)"
+
+restore_lifetime
+trap - EXIT
+login alice "$JAR" >/dev/null
 
 # --- retention deletes the files ---------------------------------------------
 echo
