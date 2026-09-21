@@ -17,6 +17,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # Runners are pinned rather than ubuntu-latest, which is moved to a new
+  # Ubuntu release on GitHub's schedule. An OS change under a job that runs a
+  # whole Kubernetes cluster should be a deliberate commit, not a surprise.
   JAVA_VERSION: '25'
   NODE_VERSION: '22'
   HELM_VERSION: v3.22.0
@@ -27,7 +30,7 @@ env:
 jobs:
   build:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -85,7 +88,7 @@ jobs:
 
   chart:
     name: Helm chart
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -118,7 +121,7 @@ jobs:
 
   architecture:
     name: Architecture model
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -136,7 +139,7 @@ jobs:
     name: End-to-end on k3d
     # Only worth a real cluster once the cheaper checks pass.
     needs: [build, chart]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
