@@ -101,6 +101,22 @@ coexists with other k3d clusters already holding port 80.
 Re-running the script after a code change rebuilds and upgrades in place; pass
 `SKIP_STACK=1` to leave Loki, Alloy, Grafana and MinIO untouched.
 
+### Installing the published chart
+
+After every commit to `main` that passes the whole pipeline, including the
+end-to-end run, CI publishes the image and the chart to GHCR:
+
+```bash
+helm install loggate oci://ghcr.io/opentooling/charts/loggate -f my-values.yaml
+helm show values oci://ghcr.io/opentooling/charts/loggate      # every setting
+```
+
+The image is `ghcr.io/opentooling/loggate`, for amd64 and arm64, tagged
+`sha-<short commit>`, `sha-<full commit>`, `main` and `latest`. Chart versions
+are `<major.minor from Chart.yaml>.<CI run number>`, so a plain install gets the
+newest, and each chart's `appVersion`, its default image tag, is the image built
+from the same commit. Pin both with `--version` and `image.tag` in production.
+
 ### Deploying to production
 
 [`deploy/examples/values-openshift-open-access.yaml`](deploy/examples/values-openshift-open-access.yaml)
@@ -156,6 +172,7 @@ then `e2e/wait-for-logs.sh`, which returns once Loki can actually serve them.
 | Helm chart | the chart lints; `extraObjects` renders in both forms; the OpenShift example renders as documented; unsafe access configurations refuse to render |
 | Architecture model | `docs/architecture.calm.json` validates with the FINOS CALM CLI |
 | End-to-end on k3d | the whole stack deployed to a fresh cluster by `deploy/local/deploy.sh`, with a second cluster's logs, then every suite above, including Playwright and the OpenShift check |
+| Publish image, Publish chart | on `main` only, after every job above passes: the multi-arch image, then the chart, pulled back to check it installs that image |
 
 The end-to-end job runs only once the build and chart jobs pass, and on failure
 keeps the pod logs, cluster events and Playwright traces as a run artifact.
@@ -217,3 +234,7 @@ team-label mode's pin to its own cluster keeps out.
 Schema changes are Liquibase changesets under
 `backend/src/main/resources/db/changelog/changes`, applied at application
 startup. Never edit a changeset that has already been applied — add a new one.
+
+## License
+
+[MIT](LICENSE)

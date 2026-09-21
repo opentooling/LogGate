@@ -17,6 +17,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  IMAGE_NAME: ghcr.io/opentooling/loggate
+  CHART_REGISTRY: oci://ghcr.io/opentooling/charts
   # Runners are pinned rather than ubuntu-latest, which is moved to a new
   # Ubuntu release on GitHub's schedule. An OS change under a job that runs a
   # whole Kubernetes cluster should be a deliberate commit, not a surprise.
@@ -311,3 +313,113 @@ jobs:
             diagnostics/
             ui/test-results/
           retention-days: 14
+
+  publish-image:
+    name: Publish image to GHCR
+    # Only from main, and only a commit that passed every check, including the
+    # end-to-end run on a real cluster.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, chart, architecture, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.tags.outputs.short }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Tags
+        id: tags
+        run: echo "short=sha-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Jib reads the credentials this writes to the Docker config.
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          # GITHUB_TOKEN can only publish under this repository's owner. To
+          # publish elsewhere, set the GHCR_USERNAME variable and a GHCR_TOKEN
+          # secret (a token with write:packages).
+          username: ${{ vars.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # Jib pushes straight to the registry, for amd64 and arm64 as one image
+      # index, without a Dockerfile or a Docker build. The layers are the same
+      # classes on each platform's variant of the base image.
+      - name: Build and push the image
+        run: |
+          ./gradlew :backend:jib --no-configuration-cache \
+            -PimageName="$IMAGE_NAME" \
+            -PimageTag="${{ steps.tags.outputs.short }}" \
+            -PimageExtraTags="sha-$GITHUB_SHA,main,latest" \
+            -PimagePlatforms=linux/amd64,linux/arm64 \
+            -PimageRevision="$GITHUB_SHA"
+
+      - name: Show the published image
+        run: |
+          docker buildx imagetools inspect "$IMAGE_NAME:${{ steps.tags.outputs.short }}"
+          echo "::notice::Published $IMAGE_NAME:${{ steps.tags.outputs.short }} (also sha-$GITHUB_SHA, main, latest)"
+
+  publish-chart:
+    name: Publish Helm chart to GHCR
+    # After the image, so the chart's default image tag always resolves.
+    needs: publish-image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      # Version: major.minor from Chart.yaml, patch = CI run number, so a plain
+      # `helm install` gets the newest. appVersion, the default image tag, is
+      # the image built from this commit.
+      - name: Package the chart
+        id: package
+        run: |
+          base="$(sed -n 's/^version: *\([0-9]*\.[0-9]*\)\..*/\1/p' deploy/helm/loggate/Chart.yaml)"
+          version="$base.${{ github.run_number }}"
+          helm package deploy/helm/loggate --version "$version" \
+            --app-version "${{ needs.publish-image.outputs.tag }}" --destination "$RUNNER_TEMP"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Push the chart
+        env:
+          REGISTRY_USER: ${{ vars.GHCR_USERNAME || github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$REGISTRY_PASSWORD" | helm registry login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          helm push "$RUNNER_TEMP/loggate-${{ steps.package.outputs.version }}.tgz" "$CHART_REGISTRY"
+
+      # Pulled back and rendered, to prove what was published installs the
+      # image published with it.
+      - name: Check the published chart
+        run: |
+          version="${{ steps.package.outputs.version }}"
+          helm show chart "$CHART_REGISTRY/loggate" --version "$version"
+          image="$(helm template loggate "$CHART_REGISTRY/loggate" --version "$version" \
+            --set oidc.issuerUri=https://sso.example.com/realms/x \
+            | sed -n 's/^ *image: *//p' | sort -u | grep loggate)"
+          echo "$image"
+          test "$image" = "$IMAGE_NAME:${{ needs.publish-image.outputs.tag }}"
+          echo "::notice::Published $CHART_REGISTRY/loggate $version, installing $image"
+

@@ -8,6 +8,11 @@ plugins {
 // Image coordinates, overridable from the deploy script / CI.
 ext.imageName = project.findProperty('imageName') ?: 'loggate'
 ext.imageTag = project.findProperty('imageTag') ?: project.version
+// Further tags for the same image, comma-separated; CI publishes several.
+ext.imageExtraTags = (project.findProperty('imageExtraTags') ?: '').split(',').findAll { it }
+// Platforms to build for, comma-separated. One by default, because a local
+// tarball holds a single image; CI pushes amd64 and arm64 as one image index.
+ext.imagePlatforms = (project.findProperty('imagePlatforms') ?: 'linux/amd64').split(',').findAll { it }
 
 java {
   toolchain {
@@ -112,12 +117,29 @@ tasks.named('processResources') {
 jib {
   from {
     image = 'eclipse-temurin:25-jre-alpine'
+    platforms {
+      imagePlatforms.each { spec ->
+        def (os, arch) = spec.tokenize('/')
+        platform {
+          architecture = arch
+          it.os = os
+        }
+      }
+    }
   }
   to {
     image = "${imageName}"
-    tags = [imageTag as String]
+    tags = ([imageTag as String] + imageExtraTags) as Set
   }
   container {
+    // Links the published package to its repository on GHCR, so it shows on
+    // the repository page and inherits its access, and records the commit.
+    labels = [
+      'org.opencontainers.image.source'  : 'https://github.com/opentooling/LogGate',
+      'org.opencontainers.image.revision': (project.findProperty('imageRevision') ?: 'unknown') as String,
+      'org.opencontainers.image.title'   : 'LogGate',
+      'org.opencontainers.image.licenses': 'MIT'
+    ]
     user = '10001:10001'
     ports = ['8080']
     jvmFlags = ['-XX:MaxRAMPercentage=75', '-XX:+ExitOnOutOfMemoryError']

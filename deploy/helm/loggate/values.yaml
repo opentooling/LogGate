@@ -1,7 +1,9 @@
 # -- Image for the LogGate application.
 image:
-  repository: loggate
-  tag: ""          # defaults to .Chart.AppVersion
+  repository: ghcr.io/opentooling/loggate
+  # Defaults to the chart's appVersion, which CI sets to the sha-<commit> image
+  # built from the same commit as the chart.
+  tag: ""
   pullPolicy: IfNotPresent
 
 # -- API replicas. Sessions are shared through PostgreSQL, so a login that

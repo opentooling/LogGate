@@ -23,5 +23,6 @@
     "vite": "^7.1.0",
     "@playwright/test": "^1.56.0",
     "vitest": "^3.2.0"
-  }
+  },
+  "license": "MIT"
 }

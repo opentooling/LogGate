@@ -7,3 +7,5 @@ appVersion: "0.1.0"
 home: https://github.com/opentooling/LogGate
 sources:
   - https://github.com/opentooling/LogGate
+annotations:
+  licenses: MIT
