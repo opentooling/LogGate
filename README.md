@@ -1,6 +1,6 @@
 # LogGate
 
-[![CI](https://github.com/jugash/LogGate/actions/workflows/ci.yml/badge.svg)](https://github.com/jugash/LogGate/actions/workflows/ci.yml)
+[![CI](https://github.com/opentooling/LogGate/actions/workflows/ci.yml/badge.svg)](https://github.com/opentooling/LogGate/actions/workflows/ci.yml)
 
 Governed bulk log export for Grafana Loki.
 
