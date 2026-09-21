@@ -11,9 +11,13 @@ replicaCount: 2
 
 updateStrategy: RollingUpdate
 
-# -- Extra pod/container hardening. Set openShift=true to drop the explicit
-# uid/gid and let the restricted-v2 SCC assign them.
-openShift: false
+# -- OpenShift. With enabled=true every pod leaves out its fixed runAsUser,
+# runAsGroup and fsGroup, so the restricted-v2 SCC can assign them from the
+# namespace's range; everything else it requires is already set. Pair it with
+# route.enabled for a Route instead of an Ingress. (The older top-level
+# `openShift: true` is still honoured.)
+openshift:
+  enabled: false
 
 # -- How long startup may take before the pod is considered broken, as
 # failureThreshold x 3 seconds.
@@ -36,6 +40,20 @@ ingress:
   host: loggate.localtest.me
   annotations: {}
   tls: []
+
+# -- An OpenShift Route for the application, in place of the Ingress. The OIDC
+# callback URL is derived from its host.
+route:
+  enabled: false
+  host: ""
+  # The .zip download streams through the application and a large export takes
+  # minutes. OpenShift's router closes a connection idle for 30s by default,
+  # which would cut the download off partway through.
+  timeout: 1h
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  annotations: {}
 
 # -- In-cluster PostgreSQL. Point `externalDatabase` at a managed instance for
 # production and set postgres.enabled=false.
@@ -69,11 +87,31 @@ secrets:
 # -- Namespace to team to group resolution. Must match what the identity
 # provider actually issues: the template renders the group name that owns a
 # namespace labelled with `labelKey`.
+# -- How callers are granted logs.
+access:
+  # teamLabel: a team exports the namespaces labelled as theirs (see
+  #   `namespaces`), read from this cluster's Kubernetes API.
+  # open: every namespace Loki holds logs for, from every cluster that ships
+  #   to it, to anyone holding openRole. The Kubernetes API is not read and no
+  #   RBAC is created, so LogGate needs no access to any cluster it serves.
+  mode: teamLabel
+  # A client role on LogGate's own OIDC client (oidc.clientId), held directly
+  # or inherited through a group. Required in open mode; the chart refuses to
+  # render open mode without one.
+  openRole: ""
+  # How far back to look in Loki for the clusters and namespaces to offer.
+  discoveryWindow: 7d
+
+# -- Team ownership, for access.mode=teamLabel.
 namespaces:
   enabled: true
   labelKey: xyz.com/team
   groupTemplate: "ad-{team}-{env}"
   environment: dev
+  # This cluster's name in loki.clusterLabel. Required when a cluster label is
+  # set: the Kubernetes API can only vouch for its own cluster, so every
+  # export in team-label mode is pinned to it.
+  cluster: ""
 
 # -- OIDC. Point issuerUri at an existing Keycloak in production and leave
 # keycloak.enabled false.
@@ -88,8 +126,9 @@ oidc:
   existingSecret: ""
   clientSecretKey: oidc-client-secret
 
-# -- RBAC for reading namespace metadata. The only cluster-scoped permission
-# LogGate needs.
+# -- RBAC for reading namespace metadata, the only cluster-scoped permission
+# LogGate needs. Only created in team-label mode; open mode reads nothing from
+# the Kubernetes API.
 rbac:
   create: true
 
@@ -116,6 +155,14 @@ keycloak:
     - platform
     - payments
   demoUserPassword: loggate
+  # The group granted the open-mode client role in the demo realm, and who is
+  # in it. Granted to the group rather than to users, as a real realm usually
+  # does, so open mode is exercised the way it runs. bob, in a team but not
+  # this group, is how the refusal is shown.
+  roleGroup:
+    name: log-exporters
+    role: export-logs
+    members: [alice, carol]
   # dave deliberately has no teams: the refusal path needs a fixture too.
   demoUsers:
     - username: alice
@@ -138,6 +185,15 @@ keycloak:
 # compromised LogGate could reach.
 networkPolicy:
   enabled: false
+  # Where the cluster's DNS resolver runs. Left empty, it is upstream
+  # Kubernetes' kube-dns on port 53, or with openshift.enabled, OpenShift's
+  # openshift-dns on port 5353. Set these only for anything else. (Defaults
+  # live in the template because Helm merges maps: a default selector here
+  # could not be replaced, only added to, and would match nothing.)
+  dns:
+    namespaceSelector: {}
+    podSelector: {}
+    ports: []
   ingressFrom:
     - namespaceSelector:
         kubernetes.io/metadata.name: ingress-nginx
@@ -171,10 +227,20 @@ storage:
   accessKey: ""
   secretKey: ""
   existingSecret: ""
-  # MinIO addresses buckets by path rather than by subdomain.
+  # MinIO and ONTAP S3 address buckets by path unless DNS is set up for
+  # virtual-hosted buckets.
   pathStyle: true
   # -- How long a presigned download link stays valid.
   presignedUrlLifetime: 30m
+  # -- When the S3 client adds integrity checksums. whenRequired suits every
+  # S3-compatible store (MinIO, NetApp ONTAP S3, StorageGRID); whenSupported is
+  # the AWS SDK's own default and is for AWS S3 only.
+  checksums: whenRequired
+  # -- A certificate authority to trust for the storage endpoint, for stores
+  # behind an internal CA. A Secret in this namespace holding a PEM bundle.
+  caCertificate:
+    secretName: ""
+    key: ca.crt
 
 # -- Workers and quotas.
 execution:
@@ -198,6 +264,11 @@ quotas:
 loki:
   url: http://loki-gateway.observability.svc.cluster.local
   tenantId: ""
+  # The stream label naming the cluster each log came from, when Loki holds
+  # more than one cluster's logs (commonly `cluster`, set as an external label
+  # by each cluster's log shipper). Empty when it holds one. When set, the page
+  # offers a choice of cluster.
+  clusterLabel: ""
 
 # -- Extra Kubernetes objects to deploy with the release, e.g. custom resources.
 # Items can be YAML objects or strings; both are rendered with `tpl`, so template

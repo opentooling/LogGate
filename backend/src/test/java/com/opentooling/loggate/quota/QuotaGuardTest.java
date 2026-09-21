@@ -2,6 +2,7 @@ package com.opentooling.loggate.quota;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -42,6 +43,10 @@ class QuotaGuardTest {
         maxRange, maxEstimatedBytes, 2, 10, 1.25, 64L * 1024 * 1024, 500 * GB, Duration.ofHours(24));
   }
 
+  private static List<BudgetHolder> teams(String... names) {
+    return java.util.Arrays.stream(names).map(BudgetHolder::team).toList();
+  }
+
   private static ExportRequest request(Duration range) {
     return new ExportRequest(List.of("platform-dev"), null, null, null, FROM, FROM.plus(range));
   }
@@ -52,7 +57,7 @@ class QuotaGuardTest {
 
   @Test
   void admitsAReasonableExport() {
-    QuotaDecision decision = guard().admit("alice", List.of("platform"), request(Duration.ofHours(6)), estimate(GB));
+    QuotaDecision decision = guard().admit("alice", teams("platform"), request(Duration.ofHours(6)), estimate(GB));
 
     assertThat(decision.admitted()).isTrue();
     assertThat(decision.reason()).isNull();
@@ -62,21 +67,21 @@ class QuotaGuardTest {
   void capsTheJobAboveItsEstimate() {
     // The range keeps receiving logs while the export runs, so a cap set at
     // exactly the estimate would fail honest exports near the end.
-    QuotaDecision decision = guard().admit("alice", List.of("platform"), request(Duration.ofHours(6)), estimate(GB));
+    QuotaDecision decision = guard().admit("alice", teams("platform"), request(Duration.ofHours(6)), estimate(GB));
 
     assertThat(decision.byteLimit()).isEqualTo((long) Math.ceil(GB * 1.25));
   }
 
   @Test
   void neverCapsBelowTheFloor() {
-    QuotaDecision decision = guard().admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(1024));
+    QuotaDecision decision = guard().admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(1024));
 
     assertThat(decision.byteLimit()).isEqualTo(64L * 1024 * 1024);
   }
 
   @Test
   void refusesARangeLongerThanAllowed() {
-    QuotaDecision decision = guard().admit("alice", List.of("platform"), request(Duration.ofDays(30)), estimate(GB));
+    QuotaDecision decision = guard().admit("alice", teams("platform"), request(Duration.ofDays(30)), estimate(GB));
 
     assertThat(decision.admitted()).isFalse();
     assertThat(decision.reason()).contains("30 days").contains("2 days");
@@ -85,7 +90,7 @@ class QuotaGuardTest {
   @Test
   void refusesAnExportLargerThanAllowed() {
     QuotaDecision decision =
-        guard().admit("alice", List.of("platform"), request(Duration.ofHours(6)), estimate(200 * GB));
+        guard().admit("alice", teams("platform"), request(Duration.ofHours(6)), estimate(200 * GB));
 
     assertThat(decision.admitted()).isFalse();
     assertThat(decision.reason()).contains("200.0 GB").contains("50.0 GB");
@@ -95,7 +100,7 @@ class QuotaGuardTest {
   void refusesWhenTheCallerAlreadyHasTooManyRunning() {
     when(jobs.activeJobsFor("alice")).thenReturn(2);
 
-    QuotaDecision decision = guard().admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(GB));
+    QuotaDecision decision = guard().admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(GB));
 
     assertThat(decision.admitted()).isFalse();
     assertThat(decision.reason()).contains("you already have 2 exports running");
@@ -106,7 +111,7 @@ class QuotaGuardTest {
     when(jobs.activeJobsFor("alice")).thenReturn(0);
     when(jobs.activeJobs()).thenReturn(10);
 
-    QuotaDecision decision = guard().admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(GB));
+    QuotaDecision decision = guard().admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(GB));
 
     assertThat(decision.admitted()).isFalse();
     assertThat(decision.reason()).contains("across the platform");
@@ -120,7 +125,7 @@ class QuotaGuardTest {
         .thenReturn(499 * GB);
 
     QuotaDecision decision =
-        guard().admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(5 * GB));
+        guard().admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(5 * GB));
 
     assertThat(decision.admitted()).isFalse();
     assertThat(decision.reason())
@@ -136,7 +141,7 @@ class QuotaGuardTest {
 
     assertThat(
             guard()
-                .admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(5 * GB))
+                .admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(5 * GB))
                 .admitted())
         .isTrue();
   }
@@ -145,7 +150,7 @@ class QuotaGuardTest {
   void measuresTheBudgetOverARollingWindowEndingNow() {
     // Rolling rather than calendar: no midnight cliff, and no question about
     // whose midnight.
-    guard().admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(GB));
+    guard().admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(GB));
 
     var since = org.mockito.ArgumentCaptor.forClass(Instant.class);
     org.mockito.Mockito.verify(jobs)
@@ -166,7 +171,7 @@ class QuotaGuardTest {
         guard()
             .admit(
                 "carol",
-                List.of("platform", "payments"),
+                teams("platform", "payments"),
                 request(Duration.ofHours(1)),
                 estimate(5 * GB));
 
@@ -183,7 +188,7 @@ class QuotaGuardTest {
 
     assertThat(
             guard(noBudget)
-                .admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(GB))
+                .admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(GB))
                 .admitted())
         .isTrue();
   }
@@ -193,7 +198,7 @@ class QuotaGuardTest {
     QuotaDecision decision =
         guard(
                 quotas(Duration.ofDays(2), 1024 * 1024))
-            .admit("alice", List.of("platform"), request(Duration.ofHours(1)), estimate(5 * 1024 * 1024));
+            .admit("alice", teams("platform"), request(Duration.ofHours(1)), estimate(5 * 1024 * 1024));
 
     assertThat(decision.reason()).contains("5.0 MB").contains("1.0 MB");
   }
@@ -203,7 +208,7 @@ class QuotaGuardTest {
     QuotaDecision decision =
         guard(
                 quotas(Duration.ofHours(6), 50 * GB))
-            .admit("alice", List.of("platform"), request(Duration.ofHours(12)), estimate(GB));
+            .admit("alice", teams("platform"), request(Duration.ofHours(12)), estimate(GB));
 
     assertThat(decision.reason()).contains("12 hours").contains("6 hours");
   }
@@ -217,7 +222,7 @@ class QuotaGuardTest {
     when(jobs.bytesExportedByTeamSince("payments", Instant.parse("2026-09-19T12:00:00Z")))
         .thenReturn(0L);
 
-    QuotaReport report = guard().report("alice", List.of("payments", "platform", "platform"));
+    QuotaReport report = guard().report("alice", teams("payments", "platform", "platform"));
 
     assertThat(report.maxRangeSeconds()).isEqualTo(Duration.ofDays(2).toSeconds());
     assertThat(report.maxEstimatedBytes()).isEqualTo(50 * GB);
@@ -229,10 +234,10 @@ class QuotaGuardTest {
     assertThat(report.retentionSeconds()).isEqualTo(Duration.ofHours(48).toSeconds());
     // Deduplicated and ordered, so the same team named by two namespaces is
     // one line rather than two.
-    assertThat(report.teams())
+    assertThat(report.budgets())
         .containsExactly(
-            new QuotaReport.TeamBudget("payments", 0, 500 * GB),
-            new QuotaReport.TeamBudget("platform", 120 * GB, 500 * GB));
+            new QuotaReport.Budget("payments", "payments", 0, 500 * GB),
+            new QuotaReport.Budget("platform", "platform", 120 * GB, 500 * GB));
   }
 
   @Test
@@ -241,12 +246,30 @@ class QuotaGuardTest {
         new LogGateProperties.Quotas(
             Duration.ofDays(2), 50 * GB, 2, 10, 1.25, 64L * 1024 * 1024, 0, Duration.ofHours(24));
 
-    QuotaReport report = guard(off).report("alice", List.of("platform"));
+    QuotaReport report = guard(off).report("alice", teams("platform"));
 
-    assertThat(report.teams())
-        .containsExactly(new QuotaReport.TeamBudget("platform", 0, 0));
+    assertThat(report.budgets())
+        .containsExactly(new QuotaReport.Budget("platform", "platform", 0, 0));
     // A budget that is off is not a budget of zero that everyone has spent, so
     // the repository is never asked.
     verify(jobs, never()).bytesExportedByTeamSince(any(), any());
+  }
+
+  @Test
+  void chargesAPersonInOpenModeAndNamesThemRatherThanTheirSubject() {
+    // Open mode has no teams, so the person is charged. The refusal speaks to
+    // them by name, not by the identifier spending is recorded under.
+    when(jobs.bytesExportedByTeamSince(eq("user:carol-subject"), any())).thenReturn(499 * GB);
+
+    QuotaDecision decision =
+        guard()
+            .admit(
+                "carol-subject",
+                List.of(BudgetHolder.person("carol-subject", "carol")),
+                request(Duration.ofHours(1)),
+                estimate(2 * GB));
+
+    assertThat(decision.admitted()).isFalse();
+    assertThat(decision.reason()).startsWith("carol has exported").doesNotContain("user:");
   }
 }

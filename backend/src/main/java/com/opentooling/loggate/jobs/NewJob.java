@@ -11,7 +11,8 @@ import java.util.List;
  * @param requestedBy OIDC subject of the caller
  * @param requestedByName display name
  * @param groups the caller's groups, snapshotted for the audit trail
- * @param teams the teams that own the namespaces being exported
+ * @param teams who the export is charged to: the teams owning its namespaces, or
+ *     {@code user:<subject>} in open access mode, where there are no teams
  * @param estimatedBytes what sizing predicted
  * @param byteLimit the cap the job is admitted under
  * @param windowSeconds the planned window duration

@@ -569,3 +569,28 @@ a {
     transition: none;
   }
 }
+
+/* --- scope: clusters and namespaces ------------------------------------- */
+
+.namespace-filter {
+  margin: 0 0 0.5rem;
+}
+
+.checks.scroll {
+  max-height: 18rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.pinned {
+  margin: 0.2rem 0 0;
+  font-weight: 600;
+}
+
+.clusters {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}

@@ -9,5 +9,9 @@ public enum DenialReason {
   /** The namespace is owned by a group the caller is not a member of. */
   NOT_A_GROUP_MEMBER,
   /** The catalog is not synced, so no namespace can be authorized. */
-  CATALOG_UNAVAILABLE
+  CATALOG_UNAVAILABLE,
+  /** The cluster is not one the caller may export from, or not one Loki holds. */
+  UNKNOWN_CLUSTER,
+  /** Open mode, and the caller does not hold the role it requires. */
+  MISSING_ROLE
 }

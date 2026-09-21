@@ -27,8 +27,8 @@ class KubernetesNamespaceCatalogTest {
   private KubernetesNamespaceCatalog started() {
     LogGateProperties properties =
         TestProperties.of(
-            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
-            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
+            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
+            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30), ""),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));
     catalog = new KubernetesNamespaceCatalog(client, new GroupNameRenderer(properties), properties);
     catalog.start();
@@ -119,8 +119,8 @@ class KubernetesNamespaceCatalogTest {
         .thenThrow(new io.fabric8.kubernetes.client.KubernetesClientException("no API server"));
     LogGateProperties properties =
         TestProperties.of(
-            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
-            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
+            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
+            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30), ""),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));
     var failing =
         new KubernetesNamespaceCatalog(broken, new GroupNameRenderer(properties), properties);
@@ -136,8 +136,8 @@ class KubernetesNamespaceCatalogTest {
   void reportsNotReadyAndResolvesNothingBeforeItStarts() {
     LogGateProperties properties =
         TestProperties.of(
-            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
-            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30)),
+            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
+            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30), ""),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000));
     var unstarted =
         new KubernetesNamespaceCatalog(client, new GroupNameRenderer(properties), properties);

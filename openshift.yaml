@@ -1,0 +1,436 @@
+---
+# Source: loggate/templates/app/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loggate
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loggate
+      app.kubernetes.io/instance: loggate
+      app.kubernetes.io/component: app
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Only the ingress controller reaches the application.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/ingress: ""
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    # DNS, or nothing else resolves. Where the resolver runs differs by
+    # distribution: kube-dns on port 53 upstream, openshift-dns on 5353.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+          podSelector:
+            matchLabels:
+              dns.operator.openshift.io/daemonset-dns: default
+      ports:
+        - port: 5353
+          protocol: UDP
+        - port: 5353
+          protocol: TCP
+    # Loki, object storage, the identity provider and the Kubernetes API. These
+    # are addresses rather than selectors because they are usually outside this
+    # release, and often outside the cluster.
+    - ports:
+      - port: 8080
+        protocol: TCP
+      to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: loki
+    - ports:
+      - port: 5432
+        protocol: TCP
+      to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: databases
+    - ports:
+      - port: 443
+        protocol: TCP
+      to:
+      - ipBlock:
+          cidr: 10.20.0.0/16
+---
+# Source: loggate/templates/app/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loggate
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+---
+# Source: loggate/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: loggate-secrets
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+  annotations:
+    # The Secret is generated on first install and preserved afterwards, so a
+    # plain `helm upgrade` never rotates the database password.
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  database-password: "UFNYU1dzOTZVSlV2cjhIZVlvSEoyMzcxOVBxODI2aDc="
+  oidc-client-secret: "R1VKY284NDhmeU9CZXVHM2h3RHA0WEhNbURaU2g5VnpNV0l4YWV4Zg=="
+---
+# Source: loggate/templates/app/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: loggate
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+    app.kubernetes.io/component: app
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/component: app
+---
+# Source: loggate/templates/app/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loggate
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+    app.kubernetes.io/component: app
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loggate
+      app.kubernetes.io/instance: loggate
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loggate
+        app.kubernetes.io/instance: loggate
+        app.kubernetes.io/component: app
+      annotations:
+    spec:
+      serviceAccountName: loggate
+      securityContext:
+        
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Liquibase runs at application startup and fails fast, so a pod that
+        # starts before the database Service resolves would crash-loop its way
+        # to readiness. Waiting here makes startup deterministic instead.
+        - name: wait-for-db
+          image: postgres:17-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h "$DB_HOST" -p 5432 -U "$DB_USER" -q; do
+                echo "waiting for $DB_HOST"
+                sleep 2
+              done
+          env:
+            - name: DB_HOST
+              value: loggate-db.databases.svc.cluster.local
+            - name: DB_USER
+              value: "loggate"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+        # The OIDC issuer is resolved at startup, so the application cannot
+        # boot before Keycloak serves its discovery document.
+        # The application's own image, which has wget: pinned to the release's
+        # tag rather than a third-party image at :latest, and nothing extra to
+        # pull or to approve for an air-gapped registry.
+        - name: wait-for-issuer
+          image: registry.example.com/platform/loggate:1.4.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              until wget -q -T 5 -O /dev/null "$ISSUER/.well-known/openid-configuration"; do
+                echo "waiting for $ISSUER"
+                sleep 3
+              done
+          env:
+            - name: ISSUER
+              value: "https://sso.example.com/realms/platform"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+      containers:
+        - name: loggate
+          image: registry.example.com/platform/loggate:1.4.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: DATABASE_URL
+              value: "jdbc:postgresql://loggate-db.databases.svc.cluster.local:5432/loggate?sslmode=require"
+            - name: DATABASE_USER
+              value: "loggate"
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: loggate-db
+                  key: password
+            - name: OIDC_ISSUER_URI
+              value: "https://sso.example.com/realms/platform"
+            - name: OIDC_REDIRECT_URI
+              value: "https://loggate.apps.hub.example.com/login/oauth2/code/keycloak"
+            - name: OIDC_CLIENT_ID
+              value: "loggate"
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: loggate-oidc
+                  key: client-secret
+            - name: TEAM_LABEL_KEY
+              value: "xyz.com/team"
+            - name: TEAM_GROUP_TEMPLATE
+              value: "ad-{team}-{env}"
+            - name: ENVIRONMENT
+              value: "dev"
+            - name: NAMESPACES_ENABLED
+              value: "false"
+            - name: LOKI_URL
+              value: "http://loki-gateway.loki.svc.cluster.local"
+            - name: LOKI_CLUSTER_LABEL
+              value: "cluster"
+            - name: ACCESS_MODE
+              value: "OPEN"
+            - name: ACCESS_OPEN_ROLE
+              value: "export-logs"
+            - name: ACCESS_DISCOVERY_WINDOW
+              value: "14d"
+            - name: CLUSTER_NAME
+              value: ""
+            - name: S3_ENDPOINT
+              value: "https://s3.svm-logs.ontap.example.com"
+            - name: S3_REGION
+              value: "us-east-1"
+            - name: S3_BUCKET
+              value: "loggate-exports"
+            - name: S3_PATH_STYLE
+              value: "true"
+            - name: S3_PRESIGNED_URL_LIFETIME
+              value: "30m"
+            - name: S3_CHECKSUMS
+              value: WHEN_REQUIRED
+            - name: S3_CA_CERTIFICATE
+              value: /etc/loggate/storage-ca/ca.crt
+            - name: S3_PUBLIC_ENDPOINT
+              value: "https://s3.svm-logs.ontap.example.com"
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loggate-storage
+                  key: storage-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loggate-storage
+                  key: storage-secret-key
+            - name: WORKERS_ENABLED
+              value: "true"
+            - name: WORKER_COUNT
+              value: "4"
+            - name: WORKER_LEASE
+              value: "2m"
+            - name: WORKER_MAX_ATTEMPTS
+              value: "3"
+            - name: ARTIFACT_RETENTION
+              value: "48h"
+            - name: QUOTA_MAX_RANGE
+              value: "2d"
+            - name: QUOTA_MAX_ESTIMATED_BYTES
+              # int64, because YAML renders a large plain integer in scientific
+              # notation and the application then cannot parse it.
+              value: "53687091200"
+            - name: QUOTA_CONCURRENT_PER_USER
+              value: "2"
+            - name: QUOTA_CONCURRENT_GLOBAL
+              value: "10"
+            - name: QUOTA_DAILY_BYTES_PER_TEAM
+              # int64 for the same reason as the size limit: YAML renders a
+              # large plain integer in scientific notation.
+              value: "214748364800"
+            - name: QUOTA_BUDGET_WINDOW
+              value: "24h"
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 3
+            # Generous on purpose. Startup runs Liquibase and resolves the OIDC
+            # issuer, and on a contended cluster that can take minutes. Killing
+            # a pod that is merely slow to start produces a crash loop that
+            # looks like a broken application.
+            failureThreshold: 100
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so the JVM needs a writable tmp.
+            - name: tmp
+              mountPath: /tmp
+            - name: storage-ca
+              mountPath: /etc/loggate/storage-ca
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: storage-ca
+          secret:
+            secretName: storage-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# Source: loggate/templates/app/route.yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: loggate
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+  annotations:
+    # The .zip download streams through the application for as long as the
+    # export takes to send; the router's 30s default would cut it off.
+    haproxy.router.openshift.io/timeout: "1h"
+spec:
+  host: loggate.apps.hub.example.com
+  to:
+    kind: Service
+    name: loggate
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  wildcardPolicy: None
+---
+# Source: loggate/templates/tests/test-ready.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: loggate-test-ready
+  labels:
+    app.kubernetes.io/name: loggate
+    app.kubernetes.io/instance: loggate
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: loggate-0.1.0
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    # The application's own image: pinned to the release's tag, already on the
+    # node, and built with a numeric user. An image whose user is a name cannot
+    # be checked against runAsNonRoot when no UID is set, as in OpenShift mode.
+    - name: check
+      image: registry.example.com/platform/loggate:1.4.0
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      command:
+        - wget
+        - -q
+        - -T
+        - "10"
+        - -O
+        - /dev/null
+        - http://loggate:8080/actuator/health/readiness

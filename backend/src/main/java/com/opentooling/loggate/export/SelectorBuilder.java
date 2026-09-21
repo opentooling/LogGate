@@ -21,9 +21,31 @@ public final class SelectorBuilder {
 
   private SelectorBuilder() {}
 
+  /** Regex metacharacters, the only characters a literal needs escaping from. */
+  private static final String REGEX_META = "\\.+*?()|[]{}^$";
+
+  /** A Prometheus label name, which is all a configured cluster label can be. */
+  private static final Pattern LABEL_NAME = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
+
   /** The stream selector, plus any line filter, for {@code request}. */
   public static String build(ExportRequest request) {
+    return build(request, "");
+  }
+
+  /** The selector without any line filter, which is what the volume API sizes. */
+  public static String buildStreamSelector(ExportRequest request) {
+    return buildStreamSelector(request, "");
+  }
+
+  /**
+   * The stream selector, plus any line filter, for {@code request}, with its
+   * clusters matched on {@code clusterLabel} when one is configured.
+   */
+  public static String build(ExportRequest request, String clusterLabel) {
     StringBuilder selector = new StringBuilder("{");
+    if (clusterLabel != null && !clusterLabel.isBlank() && !request.clusters().isEmpty()) {
+      selector.append(clusterMatcher(clusterLabel, request.clusters())).append(", ");
+    }
     selector.append(namespaceMatcher(request.namespaces()));
     if (hasText(request.podPattern())) {
       selector.append(", pod=~\"").append(globToRegex(request.podPattern())).append('"');
@@ -43,13 +65,74 @@ public final class SelectorBuilder {
   }
 
   /** The selector without any line filter, which is what the volume API sizes. */
-  public static String buildStreamSelector(ExportRequest request) {
-    String full = build(request);
-    int end = full.indexOf('}');
+  public static String buildStreamSelector(ExportRequest request, String clusterLabel) {
+    String full = build(request, clusterLabel);
+    // Cluster values are escaped, so the first unescaped closing brace ends the
+    // stream selector; a brace inside a quoted value is preceded by a backslash.
+    int end = streamSelectorEnd(full);
     return full.substring(0, end + 1);
   }
 
+  static int streamSelectorEnd(String selector) {
+    boolean quoted = false;
+    for (int i = 0; i < selector.length(); i++) {
+      char c = selector.charAt(i);
+      if (c == '\\') {
+        i++;
+      } else if (c == '"') {
+        quoted = !quoted;
+      } else if (c == '}' && !quoted) {
+        return i;
+      }
+    }
+    throw new IllegalStateException("selector has no end: " + selector);
+  }
+
+  /** A stream selector for every stream from {@code clusters}. */
+  public static String clusterSelector(String clusterLabel, List<String> clusters) {
+    return "{" + clusterMatcher(clusterLabel, clusters) + "}";
+  }
+
+  private static String clusterMatcher(String clusterLabel, List<String> clusters) {
+    if (!LABEL_NAME.matcher(clusterLabel).matches()) {
+      throw new IllegalStateException("not a valid label name: " + clusterLabel);
+    }
+    if (clusters.size() == 1) {
+      return clusterLabel + "=\"" + escapeStringLiteral(clusters.getFirst()) + "\"";
+    }
+    List<String> alternatives = clusters.stream().map(SelectorBuilder::regexLiteral).toList();
+    return clusterLabel + "=~\"" + String.join("|", alternatives) + "\"";
+  }
+
+  /**
+   * A value matched literally inside a regex, then escaped for the LogQL
+   * string it sits in. Only metacharacters are escaped, so a cluster name
+   * reads the same in the generated query as it does in the label.
+   */
+  static String regexLiteral(String value) {
+    if (value.length() > MAX_GLOB_LENGTH) {
+      throw new IllegalArgumentException("value is longer than " + MAX_GLOB_LENGTH + " characters");
+    }
+    StringBuilder literal = new StringBuilder();
+    for (char c : value.toCharArray()) {
+      if (REGEX_META.indexOf(c) >= 0) {
+        literal.append("\\\\").append(c);
+      } else if (c == '"') {
+        literal.append("\\\"");
+      } else {
+        literal.append(c);
+      }
+    }
+    return literal.toString();
+  }
+
   private static String namespaceMatcher(List<String> namespaces) {
+    if (namespaces.isEmpty()) {
+      // Every namespace. A stream selector must match something non-empty, and
+      // this also keeps every export to streams that carry a namespace, which
+      // is what the size breakdown and the files are organised by.
+      return "namespace=~\".+\"";
+    }
     namespaces.forEach(SelectorBuilder::requireNamespace);
     if (namespaces.size() == 1) {
       return "namespace=\"" + namespaces.getFirst() + "\"";

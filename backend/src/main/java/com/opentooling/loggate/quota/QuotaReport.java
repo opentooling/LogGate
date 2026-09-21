@@ -18,7 +18,8 @@ import java.util.List;
  * @param activeExports how many are in flight across the platform now
  * @param budgetWindowSeconds the rolling window the team budget is measured over
  * @param retentionSeconds how long a finished export's files are kept
- * @param teams the caller's teams, with what each has spent
+ * @param budgets what the caller spends from, with what each has spent: their
+ *     teams, or in open access mode the caller themselves
  */
 public record QuotaReport(
     long maxRangeSeconds,
@@ -29,14 +30,15 @@ public record QuotaReport(
     int activeExports,
     long budgetWindowSeconds,
     long retentionSeconds,
-    List<TeamBudget> teams) {
+    List<Budget> budgets) {
 
   /**
-   * One team's standing against the rolling budget.
+   * One budget's standing against the rolling limit.
    *
-   * @param team the team label value
-   * @param usedBytes what it has exported inside the window
-   * @param limitBytes what it may export, or zero when the budget is off
+   * @param holder what spending is recorded against
+   * @param label what to call it: a team's name, or the caller's
+   * @param usedBytes what has been exported against it inside the window
+   * @param limitBytes what may be, or zero when the budget is off
    */
-  public record TeamBudget(String team, long usedBytes, long limitBytes) {}
+  public record Budget(String holder, String label, long usedBytes, long limitBytes) {}
 }

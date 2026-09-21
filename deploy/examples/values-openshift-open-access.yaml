@@ -1,0 +1,203 @@
+# Production values: LogGate on OpenShift, in open access mode, beside a Loki
+# that collects from several clusters.
+#
+#   helm upgrade --install loggate deploy/helm/loggate \
+#     -n loggate --create-namespace \
+#     -f deploy/examples/values-openshift-open-access.yaml
+#
+# The shape this is for:
+#
+#   cluster ocp-eu-1 ──┐
+#   cluster ocp-us-1 ──┼──► Loki (hub cluster) ◄── LogGate (same hub cluster)
+#   cluster edge-01  ──┘        each shipper adds cluster="<name>"
+#
+# LogGate reads only Loki. It never calls any cluster's Kubernetes API, so it
+# needs no credentials for, and no network path to, the clusters whose logs it
+# serves, and the chart creates no RBAC. Everything Loki holds is available to
+# people holding one client role in Keycloak.
+#
+# Replace every example.com value. Secrets are referenced, never inlined: see
+# "Secrets" at the end.
+
+image:
+  repository: registry.example.com/platform/loggate
+  # Pin to an immutable tag or digest; never :latest in production.
+  tag: "1.4.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# -- OpenShift ----------------------------------------------------------------
+# No fixed UIDs, so the restricted-v2 SCC assigns them. Nothing else is needed:
+# every pod already runs non-root, with all capabilities dropped, no privilege
+# escalation, a read-only root filesystem and the RuntimeDefault seccomp profile.
+openshift:
+  enabled: true
+
+# A Route rather than an Ingress. The OIDC callback URL is derived from its host.
+ingress:
+  enabled: false
+route:
+  enabled: true
+  host: loggate.apps.hub.example.com
+  # Long enough for the largest .zip download to stream through; the router's
+  # 30s default would cut it off.
+  timeout: 1h
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# -- Who may export ------------------------------------------------------------
+access:
+  mode: open
+  # A client role on the "loggate" client in Keycloak. Grant it to a group and
+  # manage who may export by group membership; see "Keycloak" at the end.
+  openRole: export-logs
+  # Clusters and namespaces that have logged within this window are offered.
+  # Match it to Loki's retention if people export old data.
+  discoveryWindow: 14d
+
+# Namespace ownership is a team-label mode concern. Off, and no RBAC, so the
+# service account can do nothing in the Kubernetes API at all.
+namespaces:
+  enabled: false
+rbac:
+  create: false
+
+# -- Loki -----------------------------------------------------------------------
+loki:
+  # Grafana's Loki chart. Its gateway takes plain HTTP with an X-Scope-OrgID
+  # header. The OpenShift Logging LokiStack gateway requires OpenShift bearer
+  # tokens instead, which LogGate does not send; point LogGate at the Grafana
+  # chart's gateway or query frontend, not at a LokiStack gateway.
+  url: http://loki-gateway.loki.svc.cluster.local
+  # The tenant exports read from, when Loki is multi-tenant. A tenant of its own
+  # (with its own query limits) keeps a large export from slowing dashboards.
+  tenantId: ""
+  # Each cluster's shipper sets this label, e.g. Alloy's
+  #   loki.write "default" { external_labels = { cluster = "ocp-eu-1" } }
+  clusterLabel: cluster
+
+# -- Identity -------------------------------------------------------------------
+keycloak:
+  enabled: false
+oidc:
+  issuerUri: https://sso.example.com/realms/platform
+  clientId: loggate
+  existingSecret: loggate-oidc
+  clientSecretKey: client-secret
+
+# -- Database -------------------------------------------------------------------
+# A managed PostgreSQL 15+. The in-cluster one is a local convenience.
+postgres:
+  enabled: false
+externalDatabase:
+  url: jdbc:postgresql://loggate-db.databases.svc.cluster.local:5432/loggate?sslmode=require
+  host: loggate-db.databases.svc.cluster.local
+  username: loggate
+  existingSecret: loggate-db
+  passwordKey: password
+
+# -- Object storage: NetApp ONTAP S3 ------------------------------------------
+# Needs ONTAP 9.11.1 or later, for presigned download links. Every other
+# operation LogGate uses has been supported since 9.8. Works the same against
+# StorageGRID or any other S3-compatible store.
+storage:
+  endpoint: https://s3.svm-logs.ontap.example.com
+  # What a browser uses to download. Usually the same address; different when
+  # the storage is reached one way from the cluster and another from desks.
+  publicEndpoint: https://s3.svm-logs.ontap.example.com
+  # ONTAP accepts any region in the signature; this is what LogGate signs with.
+  region: us-east-1
+  bucket: loggate-exports
+  existingSecret: loggate-storage
+  # ONTAP S3 addresses buckets by path unless DNS is set up for
+  # virtual-hosted buckets.
+  pathStyle: true
+  # Plain uploads. The AWS SDK's default trailing checksums are not among the
+  # payload modes ONTAP documents.
+  checksums: whenRequired
+  presignedUrlLifetime: 30m
+  # ONTAP presents the SVM's certificate, commonly issued by an internal CA.
+  caCertificate:
+    secretName: storage-ca
+    key: ca.crt
+
+# -- Limits ---------------------------------------------------------------------
+execution:
+  workers: 4
+  retention: 48h
+
+quotas:
+  maxRange: 2d
+  maxEstimatedBytes: 53687091200     # 50 GiB read from Loki per export
+  concurrentPerUser: 2
+  concurrentGlobal: 10
+  # In open mode there are no teams, so this is per person.
+  dailyBytesPerTeam: 214748364800    # 200 GiB per person per budgetWindow
+  budgetWindow: 24h
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+# -- Network --------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # DNS egress is allowed to OpenShift's resolver (openshift-dns, port 5353)
+  # automatically, because openshift.enabled is set.
+  # Only OpenShift's router reaches the application.
+  ingressFrom:
+    - namespaceSelector:
+        policy-group.network.openshift.io/ingress: ""
+  egressTo:
+    # Loki
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: loki
+      ports:
+        - port: 8080
+          protocol: TCP
+    # PostgreSQL
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Keycloak and ONTAP S3, outside the cluster
+    - to:
+        - ipBlock:
+            cidr: 10.20.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+
+# -- Keycloak -------------------------------------------------------------------
+# On the "loggate" client (confidential, standard flow, redirect URI
+# https://loggate.apps.hub.example.com/*):
+#
+#   1. Client roles: create "export-logs".
+#   2. Groups: create "log-exporters"; Role mapping > assign "export-logs" from
+#      the loggate client.
+#   3. Add the people who may export to "log-exporters".
+#
+# Keycloak puts client roles in the access token by default (the "roles"
+# client scope), including roles inherited through groups, which is where
+# LogGate reads them. No mapper changes are needed.
+#
+#   kcadm.sh create clients/$CLIENT/roles -r platform -s name=export-logs
+#   kcadm.sh create groups -r platform -s name=log-exporters
+#   kcadm.sh add-roles -r platform --gname log-exporters --cclientid loggate --rolename export-logs
+#
+# -- Secrets --------------------------------------------------------------------
+#   oc create secret generic loggate-oidc    --from-literal=client-secret=...
+#   oc create secret generic loggate-db      --from-literal=password=...
+#   oc create secret generic loggate-storage --from-literal=storage-access-key=... \
+#                                            --from-literal=storage-secret-key=...
+#   oc create secret generic storage-ca      --from-file=ca.crt=ontap-ca.pem

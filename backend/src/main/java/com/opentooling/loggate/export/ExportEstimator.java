@@ -35,10 +35,17 @@ public class ExportEstimator {
 
   private final LokiClient loki;
   private final WindowPlanner planner;
+  private final String clusterLabel;
 
   public ExportEstimator(LokiClient loki, WindowPlanner planner) {
+    this(loki, planner, "");
+  }
+
+  /** @param clusterLabel the label naming each log's cluster, or empty for none */
+  public ExportEstimator(LokiClient loki, WindowPlanner planner, String clusterLabel) {
     this.loki = loki;
     this.planner = planner;
+    this.clusterLabel = clusterLabel;
   }
 
   /** Estimates {@code request}, which must already have been authorized. */
@@ -46,12 +53,12 @@ public class ExportEstimator {
     // Sized on the stream selector alone: a line filter reduces what is
     // written, but Loki still reads the streams, so the honest number to
     // quota against is the unfiltered one.
-    String streamSelector = SelectorBuilder.buildStreamSelector(request);
+    String streamSelector = SelectorBuilder.buildStreamSelector(request, clusterLabel);
     VolumeEstimate volume = loki.volume(streamSelector, request.from(), request.to());
 
     WindowPlan plan = planner.plan(request.from(), request.to(), volume.totalBytes());
     return new ExportEstimate(
-        SelectorBuilder.build(request),
+        SelectorBuilder.build(request, clusterLabel),
         request.from(),
         request.to(),
         volume.totalBytes(),
@@ -99,7 +106,7 @@ public class ExportEstimator {
       // An empty result for the filtered query is not an unknown: it means the
       // filter matched nothing in a window that definitely held data.
       OptionalLong sampledMatching =
-          loki.sampleBytes(SelectorBuilder.build(request), at, window);
+          loki.sampleBytes(SelectorBuilder.build(request, clusterLabel), at, window);
       double selectivity =
           sampledMatching.isEmpty()
               ? 0

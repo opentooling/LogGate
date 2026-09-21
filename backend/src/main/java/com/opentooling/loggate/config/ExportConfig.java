@@ -56,7 +56,8 @@ public class ExportConfig {
   }
 
   @Bean
-  ExportEstimator exportEstimator(LokiClient lokiClient, WindowPlanner windowPlanner) {
-    return new ExportEstimator(lokiClient, windowPlanner);
+  ExportEstimator exportEstimator(
+      LokiClient lokiClient, WindowPlanner windowPlanner, LogGateProperties properties) {
+    return new ExportEstimator(lokiClient, windowPlanner, properties.loki().clusterLabel());
   }
 }

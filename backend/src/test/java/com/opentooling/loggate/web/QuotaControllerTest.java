@@ -10,10 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.opentooling.loggate.authz.AuthorizationGate;
-import com.opentooling.loggate.authz.NamespaceAuthorizer;
+import com.opentooling.loggate.authz.NamespaceAccess;
 import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
-import com.opentooling.loggate.namespaces.NamespaceInfo;
+import com.opentooling.loggate.quota.BudgetHolder;
 import com.opentooling.loggate.quota.QuotaGuard;
 import com.opentooling.loggate.quota.QuotaReport;
 import java.util.List;
@@ -31,7 +31,7 @@ class QuotaControllerTest {
 
   @Autowired private MockMvc mvc;
 
-  @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private NamespaceAccess access;
   @MockitoBean private QuotaGuard quotas;
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private com.opentooling.loggate.export.ExportService exports;
@@ -49,8 +49,7 @@ class QuotaControllerTest {
 
   @Test
   void reportsTheLimitsAndWhatIsLeftOfThem() throws Exception {
-    when(authorizer.visibleTo(any()))
-        .thenReturn(List.of(new NamespaceInfo("platform-dev", "platform", "ad-platform-dev")));
+    when(access.budgets(any())).thenReturn(List.of(BudgetHolder.team("platform")));
     when(quotas.report(eq("alice-subject"), any()))
         .thenReturn(
             new QuotaReport(
@@ -62,7 +61,7 @@ class QuotaControllerTest {
                 3,
                 86400,
                 172800,
-                List.of(new QuotaReport.TeamBudget("platform", 100, 500))));
+                List.of(new QuotaReport.Budget("platform", "platform", 100, 500))));
 
     mvc.perform(get("/api/quota").with(alice()))
         .andExpect(status().isOk())
@@ -70,25 +69,21 @@ class QuotaControllerTest {
         .andExpect(jsonPath("$.yourActiveExports").value(1))
         .andExpect(jsonPath("$.activeExports").value(3))
         .andExpect(jsonPath("$.retentionSeconds").value(172800))
-        .andExpect(jsonPath("$.teams[0].team").value("platform"))
-        .andExpect(jsonPath("$.teams[0].usedBytes").value(100));
+        .andExpect(jsonPath("$.budgets[0].label").value("platform"))
+        .andExpect(jsonPath("$.budgets[0].usedBytes").value(100));
   }
 
   @Test
-  void asksOnlyAboutTheCallersOwnTeams() throws Exception {
-    // A budget is a team's operational business, so the report never reaches
-    // beyond the teams the caller is entitled to see.
-    when(authorizer.visibleTo(any()))
-        .thenReturn(
-            List.of(
-                new NamespaceInfo("platform-dev", "platform", "ad-platform-dev"),
-                new NamespaceInfo("platform-test", "platform", "ad-platform-dev")));
+  void reportsOnlyTheBudgetsTheCallerSpendsFrom() throws Exception {
+    // A budget is its holder's operational business, so the report asks the
+    // access mode whose budgets these are rather than listing everyone's.
+    when(access.budgets(any())).thenReturn(List.of(BudgetHolder.team("platform")));
     when(quotas.report(any(), any()))
         .thenReturn(new QuotaReport(0, 0, 0, 0, 0, 0, 0, 0, List.of()));
 
     mvc.perform(get("/api/quota").with(alice())).andExpect(status().isOk());
 
-    verify(quotas).report("alice-subject", List.of("platform"));
+    verify(quotas).report("alice-subject", List.of(BudgetHolder.team("platform")));
   }
 
   @Test

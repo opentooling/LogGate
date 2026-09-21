@@ -1,0 +1,16 @@
+{{- /*
+Configurations that would grant more than they appear to are refused when the
+chart is rendered, rather than when a pod starts and crash-loops. The
+application refuses the same ones at startup, for installs made without the
+chart.
+*/}}
+{{- $mode := include "loggate.accessMode" . }}
+{{- if and (eq $mode "OPEN") (not .Values.access.openRole) }}
+{{- fail "access.mode=open needs access.openRole: the client role a user must hold to export. Without one, every log in Loki would be open to every signed-in user." }}
+{{- end }}
+{{- if and (eq $mode "TEAM_LABEL") .Values.loki.clusterLabel (not .Values.namespaces.cluster) }}
+{{- fail "access.mode=teamLabel with loki.clusterLabel set needs namespaces.cluster: this cluster's name. The Kubernetes API can only vouch for its own namespaces, so every export is pinned to it." }}
+{{- end }}
+{{- if and .Values.route.enabled .Values.ingress.enabled }}
+{{- fail "route.enabled and ingress.enabled are both set; choose one, or OpenShift will serve the application twice." }}
+{{- end }}

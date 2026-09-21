@@ -11,23 +11,28 @@ spec:
   restartPolicy: Never
   securityContext:
     runAsNonRoot: true
-    {{- if not .Values.openShift }}
+    {{- if not (include "loggate.openshift" .) }}
     runAsUser: 10001
     {{- end }}
     seccompProfile:
       type: RuntimeDefault
   containers:
+    # The application's own image: pinned to the release's tag, already on the
+    # node, and built with a numeric user. An image whose user is a name cannot
+    # be checked against runAsNonRoot when no UID is set, as in OpenShift mode.
     - name: check
-      image: curlimages/curl:latest
+      image: {{ include "loggate.image" . }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
         capabilities:
           drop: [ALL]
-      args:
-        - --fail
-        - --silent
-        - --show-error
-        - --max-time
+      command:
+        - wget
+        - -q
+        - -T
         - "10"
+        - -O
+        - /dev/null
         - http://{{ include "loggate.fullname" . }}:{{ .Values.service.port }}/actuator/health/readiness

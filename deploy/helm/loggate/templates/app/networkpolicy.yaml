@@ -28,17 +28,30 @@ spec:
         - port: http
           protocol: TCP
   egress:
-    # DNS, or nothing else resolves.
+    # DNS, or nothing else resolves. Where the resolver runs differs by
+    # distribution: kube-dns on port 53 upstream, openshift-dns on 5353.
+    {{- $dns := .Values.networkPolicy.dns }}
+    {{- $openshift := include "loggate.openshift" . }}
+    {{- $namespaces := $dns.namespaceSelector | default (ternary (dict "kubernetes.io/metadata.name" "openshift-dns") (dict) (eq $openshift "true")) }}
+    {{- $pods := $dns.podSelector | default (ternary (dict "dns.operator.openshift.io/daemonset-dns" "default") (dict "k8s-app" "kube-dns") (eq $openshift "true")) }}
+    {{- $ports := $dns.ports | default (ternary (list 5353) (list 53) (eq $openshift "true")) }}
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            {{- with $namespaces }}
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+            {{- else }} {}
+            {{- end }}
           podSelector:
             matchLabels:
-              k8s-app: kube-dns
+              {{- toYaml $pods | nindent 14 }}
       ports:
-        - port: 53
+        {{- range $ports }}
+        - port: {{ . }}
           protocol: UDP
-        - port: 53
+        - port: {{ . }}
           protocol: TCP
+        {{- end }}
     {{- if .Values.postgres.enabled }}
     - to:
         - podSelector:
@@ -65,6 +78,7 @@ spec:
     {{- with .Values.networkPolicy.egressTo }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- if .Values.postgres.enabled }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -88,4 +102,5 @@ spec:
       ports:
         - port: postgres
           protocol: TCP
+{{- end }}
 {{- end }}

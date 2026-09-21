@@ -110,4 +110,75 @@ class SelectorBuilderTest {
     assertThatThrownBy(() -> SelectorBuilder.escapeStringLiteral("a".repeat(513)))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  private static ExportRequest inClusters(List<String> namespaces, List<String> clusters) {
+    return new ExportRequest(
+        namespaces, null, null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(60), clusters);
+  }
+
+  @Test
+  void matchesASingleClusterExactly() {
+    assertThat(SelectorBuilder.build(inClusters(List.of("platform-dev"), List.of("edge-eu")), "cluster"))
+        .isEqualTo("{cluster=\"edge-eu\", namespace=\"platform-dev\"}");
+  }
+
+  @Test
+  void matchesSeveralClustersAsLiteralsInARegex() {
+    // A dot is a regex wildcard; left unescaped, "eu.1" would also match "eux1".
+    assertThat(
+            SelectorBuilder.build(inClusters(List.of("platform-dev"), List.of("edge-eu", "eu.1")), "cluster"))
+        .isEqualTo("{cluster=~\"edge-eu|eu\\\\.1\", namespace=\"platform-dev\"}");
+  }
+
+  @Test
+  void escapesQuotesInAClusterNameSoTheyCannotEndTheString() {
+    assertThat(SelectorBuilder.build(inClusters(List.of("a"), List.of("x\"} |= \"y")), "cluster"))
+        .startsWith("{cluster=\"x\\\"} |= \\\"y\", namespace");
+    assertThat(SelectorBuilder.regexLiteral("a\"b")).isEqualTo("a\\\"b");
+  }
+
+  @Test
+  void findsTheEndOfTheStreamSelectorPastABraceInsideAClusterName() {
+    // The stream selector is what the volume API sizes; cutting it at a brace
+    // inside a quoted value would send Loki half a selector.
+    String stream =
+        SelectorBuilder.buildStreamSelector(
+            new ExportRequest(
+                List.of("a"), null, null, "needle", Instant.EPOCH, Instant.EPOCH.plusSeconds(60),
+                List.of("odd}name")),
+            "cluster");
+    assertThat(stream).isEqualTo("{cluster=\"odd}name\", namespace=\"a\"}");
+  }
+
+  @Test
+  void leavesClustersOutWhenThereIsNoClusterLabel() {
+    assertThat(SelectorBuilder.build(inClusters(List.of("a"), List.of("edge-eu")), ""))
+        .isEqualTo("{namespace=\"a\"}");
+    assertThat(SelectorBuilder.build(inClusters(List.of("a"), List.of("edge-eu")), null))
+        .isEqualTo("{namespace=\"a\"}");
+  }
+
+  @Test
+  void selectsEveryNamespaceWhenNoneAreNamed() {
+    assertThat(SelectorBuilder.build(inClusters(List.of(), List.of("edge-eu")), "cluster"))
+        .isEqualTo("{cluster=\"edge-eu\", namespace=~\".+\"}");
+  }
+
+  @Test
+  void refusesAClusterLabelThatIsNotALabelName() {
+    assertThatThrownBy(() -> SelectorBuilder.clusterSelector("not a label", List.of("x")))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void refusesAnOverlongClusterName() {
+    assertThatThrownBy(() -> SelectorBuilder.regexLiteral("x".repeat(257)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void reportsASelectorThatNeverCloses() {
+    assertThatThrownBy(() -> SelectorBuilder.streamSelectorEnd("{namespace=\"a\""))
+        .isInstanceOf(IllegalStateException.class);
+  }
 }

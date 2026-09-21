@@ -11,6 +11,11 @@ import static org.mockito.Mockito.verify;
 import com.opentooling.loggate.PostgresContainerConfig;
 import com.opentooling.loggate.audit.AuditAction;
 import com.opentooling.loggate.audit.AuditService;
+import com.opentooling.loggate.authz.NamespaceAccess;
+import com.opentooling.loggate.authz.NamespaceAuthorizer;
+import com.opentooling.loggate.authz.OpenAccess;
+import com.opentooling.loggate.authz.TeamLabelAccess;
+import com.opentooling.loggate.namespaces.LokiDirectory;
 import com.opentooling.loggate.config.LogGateProperties;
 import com.opentooling.loggate.config.TestProperties;
 import com.opentooling.loggate.jobs.ExportJobRepository;
@@ -58,15 +63,26 @@ class ExportServiceTest {
     return service(TestProperties.quotas());
   }
 
+  private static final com.opentooling.loggate.namespaces.FakeNamespaceCatalog CATALOG =
+      new com.opentooling.loggate.namespaces.FakeNamespaceCatalog()
+          .with("platform-dev", "platform", "ad-platform-dev");
+
   private ExportService service(LogGateProperties.Quotas quotas) {
+    return service(
+        quotas,
+        new TeamLabelAccess(new NamespaceAuthorizer(CATALOG), CATALOG, ""),
+        "");
+  }
+
+  private ExportService service(
+      LogGateProperties.Quotas quotas, NamespaceAccess access, String clusterLabel) {
     var properties = TestProperties.withQuotas(quotas);
     return new ExportService(
-        new ExportEstimator(loki, new WindowPlanner(properties)),
+        new ExportEstimator(loki, new WindowPlanner(properties), clusterLabel),
         new WindowPlanner(properties),
         new QuotaGuard(jobs, properties, java.time.Clock.systemUTC()),
         jobs,
-        new com.opentooling.loggate.namespaces.FakeNamespaceCatalog()
-            .with("platform-dev", "platform", "ad-platform-dev"),
+        access,
         audit,
         new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
   }
@@ -182,5 +198,45 @@ class ExportServiceTest {
   @Test
   void reportsCancellingAJobThatIsNotThereAsNoAction() {
     assertThat(service().cancel(alice(), UUID.randomUUID(), "10.0.0.1")).isFalse();
+  }
+
+  @Test
+  void pinsATeamLabelExportToItsOwnClusterWhateverWasAskedFor() {
+    // Kubernetes can only vouch for its own cluster's namespaces, so the
+    // query, the size and the stored job all name it, even when the request
+    // named none.
+    loki.volume("platform-dev", 10 * MB);
+    var access = new TeamLabelAccess(new NamespaceAuthorizer(CATALOG), CATALOG, "core-eu");
+
+    var submission =
+        service(TestProperties.quotas(), access, "cluster")
+            .submit(alice(), request(Duration.ofHours(1)), "10.0.0.1");
+
+    assertThat(submission.job().clusters()).containsExactly("core-eu");
+    assertThat(submission.job().selector()).startsWith("{cluster=\"core-eu\", namespace=\"platform-dev\"");
+    assertThat(loki.selectorsSeen().getLast()).contains("cluster=\"core-eu\"");
+  }
+
+  @Test
+  void chargesThePersonInOpenModeAndExportsEveryNamespaceWhenNoneAreNamed() {
+    loki.volume("checkout", 10 * MB);
+    var access =
+        new OpenAccess(
+            new LokiDirectory(loki, "cluster", Duration.ofDays(7), Duration.ofMinutes(1), java.time.Clock.systemUTC()),
+            "export-logs",
+            "loggate",
+            true);
+    var carol =
+        new AuthenticatedUser("carol-subject", "carol", Set.of(), Set.of("export-logs"));
+    var everything =
+        new ExportRequest(List.of(), null, null, null, FROM, FROM.plus(Duration.ofHours(1)), List.of("edge-eu"));
+
+    var submission = service(TestProperties.quotas(), access, "cluster").submit(carol, everything, "10.0.0.3");
+
+    assertThat(submission.accepted()).isTrue();
+    assertThat(submission.job().selector()).isEqualTo("{cluster=\"edge-eu\", namespace=~\".+\"}");
+    // There are no teams to charge, so carol's own budget carries it.
+    assertThat(jobs.bytesExportedByTeamSince("user:carol-subject", FROM.minus(Duration.ofDays(1))))
+        .isEqualTo(10 * MB);
   }
 }

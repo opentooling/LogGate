@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.opentooling.loggate.authz.AuthorizationGate;
-import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
@@ -33,7 +32,7 @@ class CsrfCookieTest {
 
   @Autowired private MockMvc mvc;
 
-  @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private com.opentooling.loggate.authz.NamespaceAccess access;
   @MockitoBean private QuotaGuard quotas;
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private ExportEstimator estimator;

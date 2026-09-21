@@ -21,15 +21,29 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 @EnableWebSecurity
 public class SecurityConfig {
 
+  /**
+   * Signs users in as usual, and keeps the client roles from their access
+   * token, which is the only place Keycloak puts them by default.
+   */
   @Bean
-  SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+  com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService(
+      tools.jackson.databind.ObjectMapper json) {
+    return new com.opentooling.loggate.security.ClientRoleOidcUserService(json);
+  }
+
+  @Bean
+  SecurityFilterChain filterChain(
+      HttpSecurity http,
+      com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService)
+      throws Exception {
     return http.authorizeHttpRequests(
             auth ->
                 auth.requestMatchers("/actuator/health/**", "/actuator/info")
                     .permitAll()
                     .anyRequest()
                     .authenticated())
-        .oauth2Login(Customizer.withDefaults())
+        .oauth2Login(
+            login -> login.userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService)))
         .logout(logout -> logout.logoutSuccessUrl("/").permitAll())
         // The SPA reads the CSRF cookie and echoes it back, so it must not be
         // HttpOnly. It is not a secret: it defends against cross-origin writes.

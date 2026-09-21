@@ -16,7 +16,7 @@ class JobsConfigTest {
         "secret",
         true,
         publicEndpoint,
-        Duration.ofMinutes(30));
+        Duration.ofMinutes(30), LogGateProperties.Storage.Checksums.WHEN_REQUIRED, "");
   }
 
   @Test

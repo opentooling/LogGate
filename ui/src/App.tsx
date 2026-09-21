@@ -84,13 +84,10 @@ export function App() {
       ) : (
         <div className="columns">
           <div>
-            {me && me.namespaces.length === 0 ? (
-              <section className="card empty">
-                <h2>No namespaces</h2>
-                <p>
-                  You are not in any group that owns a labelled namespace, so there is nothing you
-                  can export. Ask the team that owns the namespace to add you to its group.
-                </p>
+            {me && me.barrier ? (
+              <section className="card empty" data-testid="barrier">
+                <h2>{me.mode === "OPEN" ? "No access" : "No namespaces"}</h2>
+                <p>{me.barrier}</p>
               </section>
             ) : (
               me && (

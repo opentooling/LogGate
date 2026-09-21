@@ -119,6 +119,51 @@ jobs:
           grep -q 'rendered: "yes"' rendered.yaml
           echo "Both extraObjects forms rendered."
 
+      # The production example for OpenShift and open access, held to what it
+      # promises: a Route with a timeout long enough for a streamed download,
+      # no RBAC, no fixed IDs for the restricted-v2 SCC to reject, open mode,
+      # and DNS allowed to OpenShift's resolver.
+      - name: Render the OpenShift open-access example
+        run: |
+          helm lint deploy/helm/loggate -f deploy/examples/values-openshift-open-access.yaml
+          helm template loggate deploy/helm/loggate -n loggate \
+            -f deploy/examples/values-openshift-open-access.yaml > openshift.yaml
+          python3 - <<'PY'
+          import yaml
+          docs = [d for d in yaml.safe_load_all(open("openshift.yaml")) if d]
+          kinds = {d["kind"] for d in docs}
+          route = next(d for d in docs if d["kind"] == "Route")
+          assert route["metadata"]["annotations"]["haproxy.router.openshift.io/timeout"] == "1h", route
+          assert not kinds & {"ClusterRole", "ClusterRoleBinding", "Ingress"}, kinds
+          for d in docs:
+              spec = d.get("spec", {})
+              pod = spec if d["kind"] == "Pod" else spec.get("template", {}).get("spec")
+              if pod:
+                  fixed = {"runAsUser", "runAsGroup", "fsGroup"} & set(pod.get("securityContext", {}))
+                  assert not fixed, (d["kind"], d["metadata"]["name"], fixed)
+          app = next(d for d in docs if d["kind"] == "Deployment")
+          env = {e["name"]: e.get("value") for e in app["spec"]["template"]["spec"]["containers"][0]["env"]}
+          assert env["ACCESS_MODE"] == "OPEN" and env["ACCESS_OPEN_ROLE"] == "export-logs", env
+          assert env["S3_CHECKSUMS"] == "WHEN_REQUIRED", env
+          policy = next(d for d in docs if d["kind"] == "NetworkPolicy")
+          assert any(5353 in [p["port"] for p in e.get("ports", [])] for e in policy["spec"]["egress"]), policy
+          print("The OpenShift open-access example renders as documented.")
+          PY
+
+      # Configurations that would grant more than they appear to must not
+      # render at all.
+      - name: Refuse unsafe access configurations
+        run: |
+          if helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
+              --set access.mode=open >/dev/null 2>&1; then
+            echo "open mode rendered without a role"; exit 1
+          fi
+          if helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
+              --set namespaces.cluster= >/dev/null 2>&1; then
+            echo "team-label mode rendered with a cluster label but no cluster to pin to"; exit 1
+          fi
+          echo "Both refused."
+
   architecture:
     name: Architecture model
     runs-on: ubuntu-24.04
@@ -193,6 +238,8 @@ jobs:
           kubectl rollout status deploy/platform-api -n platform-dev --timeout=180s
           kubectl rollout status deploy/payments-api -n payments-dev --timeout=180s
           e2e/wait-for-logs.sh platform-dev
+          # A second cluster's logs, for a cluster LogGate cannot reach.
+          deploy/local/seed-remote-cluster.sh
 
       # Each suite is its own step so the run shows which one failed, and each
       # runs even if an earlier one did, so a single failure does not hide the
@@ -224,6 +271,17 @@ jobs:
         env:
           CI: 'true'
         run: npx playwright test
+
+      # Switches to open mode and back, restarting the application each way.
+      - name: Clusters and access modes
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/open-access.sh
+
+      # A second release in OpenShift mode, under the restricted Pod Security
+      # Standard with OpenShift-style random UIDs, running an export.
+      - name: OpenShift restricted mode
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: deploy/local/openshift-check.sh
 
       # Last, because it reconfigures and restarts the application to tighten
       # the budget, and every other suite should see it as deployed.

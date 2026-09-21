@@ -20,7 +20,7 @@ spec:
         app.kubernetes.io/component: database
     spec:
       securityContext:
-        {{- if not .Values.openShift }}
+        {{- if not (include "loggate.openshift" .) }}
         runAsUser: 70
         runAsGroup: 70
         fsGroup: 70

@@ -18,12 +18,12 @@ import org.junit.jupiter.api.Test;
 
 class AuthorizationGateTest {
 
+  private static final FakeNamespaceCatalog CATALOG =
+      new FakeNamespaceCatalog().with("platform-dev", "platform", "ad-platform-dev");
+
   private final AuditService audit = mock(AuditService.class);
   private final AuthorizationGate gate =
-      new AuthorizationGate(
-          new NamespaceAuthorizer(
-              new FakeNamespaceCatalog().with("platform-dev", "platform", "ad-platform-dev")),
-          audit);
+      new AuthorizationGate(new TeamLabelAccess(new NamespaceAuthorizer(CATALOG), CATALOG, ""), audit);
 
   private static AuthenticatedUser alice() {
     return new AuthenticatedUser("alice-subject", "alice", Set.of("ad-platform-dev"));

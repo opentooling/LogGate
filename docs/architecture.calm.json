@@ -5,7 +5,7 @@
       "unique-id": "exporting-engineer",
       "node-type": "actor",
       "name": "Exporting engineer",
-      "description": "Member of a delivery team who needs a bounded bulk extract of their own namespaces' logs \u2014 typically a couple of days across a set of pods, tens of gigabytes \u2014 as files they can download. Reads logs day to day in Grafana; comes to LogGate only for the bulk case."
+      "description": "Member of a delivery team who needs a bounded bulk extract of their own namespaces' logs — typically a couple of days across a set of pods, tens of gigabytes — as files they can download. Reads logs day to day in Grafana; comes to LogGate only for the bulk case."
     },
     {
       "unique-id": "platform-operator",
@@ -41,39 +41,39 @@
       "unique-id": "loggate-postgres",
       "node-type": "database",
       "name": "LogGate PostgreSQL",
-      "description": "System of record for jobs, windows, artifacts and the audit trail, and the work queue itself \u2014 windows are claimed with SKIP LOCKED rather than through a separate broker. Schema is applied by Liquibase at application startup. Built: the initial changeset creates export_job, export_window, export_artifact and audit_event.",
+      "description": "System of record for jobs, windows, artifacts and the audit trail, and the work queue itself — windows are claimed with SKIP LOCKED rather than through a separate broker. Schema is applied by Liquibase at application startup. Built: the initial changeset creates export_job, export_window, export_artifact and audit_event.",
       "data-classification": "Confidential"
     },
     {
       "unique-id": "export-object-store",
       "node-type": "database",
       "name": "Export artifact store",
-      "description": "S3-compatible object storage (MinIO locally) holding the gzip parts and the manifest. Parts are written by multipart upload from a 5 MiB buffer, so a multi-gigabyte window never touches heap or disk. Downloads are served by presigned URL directly from storage; artifacts of cancelled and expired jobs are purged. Built.",
+      "description": "S3-compatible object storage (MinIO locally) holding the gzip parts and the manifest. Parts are written by multipart upload from a 5 MiB buffer, so a multi-gigabyte window never touches heap or disk. Downloads are served by presigned URL directly from storage; artifacts of cancelled and expired jobs are purged. Built. Compatible with MinIO, NetApp ONTAP S3 (9.11.1 or later, for presigned URLs) and StorageGRID: uploads use only payload signing modes those stores document, because the AWS SDK's default trailing checksums are switched off, and an internal certificate authority can be trusted for storage calls alone.",
       "data-classification": "PII"
     },
     {
       "unique-id": "keycloak",
       "node-type": "service",
       "name": "Keycloak",
-      "description": "OIDC provider. Issues the identity and the group claims that the authorization model intersects with namespace labels. Integrated via the authorization code flow terminated server-side. The chart ships a local, dev-mode Keycloak with seeded teams and users for development; production points at an existing instance."
+      "description": "OIDC provider. Issues the identity and the group claims that the authorization model intersects with namespace labels. Integrated via the authorization code flow terminated server-side. The chart ships a local, dev-mode Keycloak with seeded teams and users for development; production points at an existing instance. In open access mode it also grants the one client role that opens every log: LogGate reads the caller's effective client roles from resource_access.<client>.roles in the access token at sign-in, so a role granted to a group reaches every member with no mapper changes."
     },
     {
       "unique-id": "kubernetes-api",
       "node-type": "system",
       "name": "Kubernetes API",
-      "description": "Authoritative source of the namespace-to-team mapping. LogGate watches namespaces through an informer and reads the team label (for example xyz.com/team: platform), rendering the owning group name from a configurable template such as ad-{team}-{env}. Authorization fails closed when the informer has not synced. Built, with a ClusterRole granting only get/list/watch on namespaces."
+      "description": "Authoritative source of the namespace-to-team mapping in team-label access mode. LogGate watches namespaces through an informer and reads the team label (for example xyz.com/team: platform), rendering the owning group name from a configurable template such as ad-{team}-{env}. Authorization fails closed when the informer has not synced. Only this cluster's API: when Loki holds several clusters' logs, team-label mode pins every export to this cluster, because ownership elsewhere is not visible from here. Not used at all in open access mode, which creates no client and no RBAC. Built."
     },
     {
       "unique-id": "loki",
       "node-type": "system",
       "name": "Grafana Loki",
-      "description": "The log store and its read path. LogGate uses two of its APIs: index/volume_range to size an export before running it, and query_range to fetch it. Exports are pinned to their own tenant or read pool so that a large extraction cannot starve interactive Grafana queries. Deployed in the local stack as a single binary with volume_enabled."
+      "description": "The log store and its read path. LogGate uses two of its APIs: index/volume_range to size an export before running it, and query_range to fetch it. Exports are pinned to their own tenant or read pool so that a large extraction cannot starve interactive Grafana queries. Deployed in the local stack as a single binary with volume_enabled. It may hold several clusters' logs, told apart by a configurable stream label (commonly cluster); in open access mode its label values API is also how LogGate discovers which clusters and namespaces exist."
     },
     {
       "unique-id": "alloy",
       "node-type": "service",
       "name": "Grafana Alloy",
-      "description": "Log collection agent. Discovers pods through the Kubernetes API and tails their logs via the API rather than host mounts, labelling each stream with namespace, pod and container \u2014 the labels the whole authorization and selector model depends on. Deployed in the local stack as a DaemonSet."
+      "description": "Log collection agent. Discovers pods through the Kubernetes API and tails their logs via the API rather than host mounts, labelling each stream with namespace, pod and container — the labels the whole authorization and selector model depends on. Deployed in the local stack as a DaemonSet."
     },
     {
       "unique-id": "grafana",
@@ -85,7 +85,13 @@
       "unique-id": "kubernetes-cluster",
       "node-type": "system",
       "name": "Kubernetes cluster",
-      "description": "The deployment target. Locally a k3d cluster created by deploy/local/deploy.sh with ingress-nginx; in production any conformant cluster, with the chart supporting OpenShift restricted-v2 via the openShift value."
+      "description": "The deployment target. Locally a k3d cluster created by deploy/local/deploy.sh with ingress-nginx; in production any conformant cluster or OpenShift, where openshift.enabled leaves out fixed IDs for the restricted-v2 SCC and route.enabled serves the application through a Route. In open access mode LogGate need not run in any of the clusters whose logs it serves."
+    },
+    {
+      "unique-id": "remote-clusters",
+      "node-type": "system",
+      "name": "Other clusters shipping to Loki",
+      "description": "Clusters whose log shippers send to the same Loki, each stamping its streams with the cluster label. LogGate has no credentials for, and needs no network path to, any of them: in open access mode their namespaces are discovered from Loki's index, and in team-label mode they are excluded by pinning every export to LogGate's own cluster. Simulated locally by deploy/local/seed-remote-cluster.sh."
     }
   ],
   "relationships": [
@@ -99,7 +105,7 @@
           ]
         }
       },
-      "description": "Submits an export as a structured request \u2014 namespaces, pod and container selectors, time range, optional line filter \u2014 watches per-window progress, and collects the artifacts when the job is ready."
+      "description": "Submits an export as a structured request — namespaces, pod and container selectors, time range, optional line filter — watches per-window progress, and collects the artifacts when the job is ready."
     },
     {
       "unique-id": "engineer-uses-grafana",
@@ -152,7 +158,7 @@
           }
         }
       },
-      "description": "OIDC authorization code flow terminated server-side. The group claims from the token are one half of the authorization decision; namespace labels are the other.",
+      "description": "OIDC authorization code flow terminated server-side. In team-label mode the group claims are one half of the authorization decision and namespace labels the other; in open mode the client role in the access token is the whole of it.",
       "protocol": "HTTPS"
     },
     {
@@ -167,7 +173,7 @@
           }
         }
       },
-      "description": "Watches namespaces and caches the team label per namespace. A namespace with no label, or one whose rendered group is absent from the caller's claims, is refused \u2014 the cache never fails open when the watch is stale.",
+      "description": "Team-label access mode only. Watches namespaces and caches the team label per namespace. A namespace with no label, or one whose rendered group is absent from the caller's claims, is refused; the cache never fails open when the watch is stale.",
       "protocol": "HTTPS"
     },
     {
@@ -299,7 +305,7 @@
           }
         }
       },
-      "description": "Pushes log streams labelled with namespace, pod and container. Those three labels are the vocabulary of every LogGate selector and every authorization decision.",
+      "description": "Pushes log streams labelled with namespace, pod and container. Those three labels are the vocabulary of every LogGate selector and every authorization decision. Each cluster's shipper also sets the cluster label.",
       "protocol": "HTTPS"
     },
     {
@@ -351,6 +357,36 @@
         }
       },
       "description": "Everything runs in-cluster locally. In production the control plane must stay in-cluster because the namespace watch is a Kubernetes API client; Postgres, object storage and Keycloak are commonly external."
+    },
+    {
+      "unique-id": "remote-clusters-to-loki",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "remote-clusters"
+          },
+          "destination": {
+            "node": "loki"
+          }
+        }
+      },
+      "description": "Push log streams labelled with cluster, namespace, pod and container. The cluster label is the only thing that tells two clusters' same-named namespaces apart.",
+      "protocol": "HTTPS"
+    },
+    {
+      "unique-id": "control-plane-to-loki-discovery",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "loggate-api"
+          },
+          "destination": {
+            "node": "loki"
+          }
+        }
+      },
+      "description": "Open access mode only: asks the label values API which clusters, and which namespaces within them, have logged recently. Answered from the index, cached briefly, and served stale rather than failing when Loki blips. It lists what may be chosen; the client role, not this list, is what grants access.",
+      "protocol": "HTTPS"
     }
   ],
   "metadata": [
@@ -363,7 +399,8 @@
         "id-rule": "unique-id = slugified component name (e.g. loggate-worker); stable across runs so reconcile is a diff, not a rewrite",
         "note": "Greenfield. This model is the TARGET architecture; per-node build state is in implementation-status below and flagged in node descriptions, following the convention in the METAL-X model.",
         "reconciled": "2026-09-20 after M2: no node or relationship structure changed - authentication, the namespace watch and the audit trail were already modelled as relationships. The drift was entirely in what is built versus designed, plus two deployment facts worth recording: the OIDC issuer URL must be byte-identical for browser and application, and beans are wired explicitly rather than scanned.",
-        "reconciled-2026-09-20-m3": "Structure unchanged again: the control-plane-to-loki-volume and worker-to-loki-query relationships already described what M3 implemented. Two constraints were discovered by building it and are recorded in extraction-model and known-limitations."
+        "reconciled-2026-09-20-m3": "Structure unchanged again: the control-plane-to-loki-volume and worker-to-loki-query relationships already described what M3 implemented. Two constraints were discovered by building it and are recorded in extraction-model and known-limitations.",
+        "reconciled-2026-09-21-access-modes": "Added remote-clusters, remote-clusters-to-loki and control-plane-to-loki-discovery; the Kubernetes API relationship is now team-label mode only. Removed the single-api-replica limitation, resolved when sessions moved to PostgreSQL as JSON. Recorded object storage compatibility and OpenShift support on the existing nodes."
       }
     },
     {
@@ -376,7 +413,7 @@
     {
       "extraction-model": {
         "unit-of-work": "A time window. The job's range is split into fixed windows sized from the volume estimate so each lands in the hundreds of megabytes. Window i of job J always covers exactly [t_i, t_i+1) and always writes the same object keys.",
-        "why-idempotent-windows": "Determinism per window buys crash recovery, at-least-once workers with exactly-once artifacts, accurate progress as windows_done/windows_total, and parallelism with no coordination between workers \u2014 from one property rather than four mechanisms.",
+        "why-idempotent-windows": "Determinism per window buys crash recovery, at-least-once workers with exactly-once artifacts, accurate progress as windows_done/windows_total, and parallelism with no coordination between workers — from one property rather than four mechanisms.",
         "boundary-dedup": "Loki's start bound is inclusive and several entries can share a nanosecond, so paging forward by last-timestamp duplicates the entries at that instant. The pager carries forward the identities of entries at the page's maximum timestamp and skips them next page. This is the highest-risk code in the system and carries the heaviest test weight.",
         "back-pressure": "Bounded concurrency per job and globally, reduced additively on sustained 429s. A large export slows itself instead of starving Grafana.",
         "quota-abort": "Bytes are counted as they are written, so a job exceeding its cap is killed mid-flight rather than discovered afterwards. This is the capability that decided the architecture (see rejected-options).",
@@ -392,7 +429,8 @@
         "no-logql-from-users": "The API accepts a structured request and generates the selector itself, which removes the LogQL injection class entirely rather than defending against it. Free-form LogQL was considered and rejected for this system; a query-enforcing proxy such as loki-label-proxy would be required to reintroduce it safely.",
         "download-time-recheck": "Entitlement is re-evaluated when presigned URLs are minted. A 48-hour artifact must not outlive the access that produced it.",
         "group-claim-normalisation": "Keycloak emits group claims as full paths (/ad-platform-dev) unless the mapper is reconfigured, and directory-derived names vary in case. Group comparison strips the path and ignores case, so an entitlement is never lost to a leading slash.",
-        "issuer-url-identity": "The issuer URL the browser is redirected to and the one the application resolves must be identical, because Keycloak puts the former in the id_token's iss and Spring validates the callback against the registered redirect_uri. Locally that means the ingress listens on the same port the browser uses and the application resolves that hostname to the ingress."
+        "issuer-url-identity": "The issuer URL the browser is redirected to and the one the application resolves must be identical, because Keycloak puts the former in the id_token's iss and Spring validates the callback against the registered redirect_uri. Locally that means the ingress listens on the same port the browser uses and the application resolves that hostname to the ingress.",
+        "access-modes": "Two, chosen by access.mode. team-label: teams export the namespaces labelled as theirs, read from this cluster's Kubernetes API, pinned to this cluster when Loki holds several. open: every namespace Loki holds, from every cluster, to holders of one client role on LogGate's OIDC client, typically granted through a Keycloak group; namespaces become optional, none meaning all; budgets are charged to the person because there are no teams. Open mode refuses to start without a role, so it can never mean every log to every signed-in user."
       }
     },
     {
@@ -409,15 +447,17 @@
       "rejected-options": {
         "synchronous-streaming": "Stream a ZIP to the browser with no object store and no workers. Rejected: a single connection for hours, no resume, a retry restarts tens of gigabytes, and quotas can only be advisory.",
         "logcli-kubernetes-job": "One logcli Job per export. Rejected as the primary engine: it needs tens of gigabytes of staging disk because --merge-parts reads its own part files back, gives only file-count or stderr progress, cannot enforce a precise byte cap, and spreads Loki and object-store credentials into per-export pods. Its correctness advantage is real and it remains the fallback engine.",
-        "logcli-per-window": "Keep the window planner but invoke logcli once per window, so Grafana owns the pagination. Genuinely attractive and was the standing recommendation; not chosen \u2014 the decision was to own a pure-Java data path with no subprocess in it.",
+        "logcli-per-window": "Keep the window planner but invoke logcli once per window, so Grafana owns the pagination. Genuinely attractive and was the standing recommendation; not chosen — the decision was to own a pure-Java data path with no subprocess in it.",
         "direct-object-store-read": "Bypass the read path and read chunks from Loki's storage directly. Not rejected, deferred: it couples to the storage schema and misses logs still in ingesters, but it is the intended second tier for the very largest exports.",
-        "chosen": "Asynchronous job service with an extraction engine written in Java, kept behind an interface so the logcli and direct-storage engines can be substituted per size tier without touching authorization, quotas or the UI."
+        "chosen": "Asynchronous job service with an extraction engine written in Java, kept behind an interface so the logcli and direct-storage engines can be substituted per size tier without touching authorization, quotas or the UI.",
+        "per-cluster-kubernetes-api": "For open access across clusters, reading each cluster's Kubernetes API for labels. Rejected: it needs credentials for and a path to every cluster, which running beside a central Loki avoids; Loki already knows every cluster and namespace.",
+        "open-mode-group-gate": "Gating open mode on a group. The client role was chosen: it is scoped to LogGate's client, and a group can still grant it to every member."
       }
     },
     {
       "governance": {
         "coverage": "JaCoCo gates LINE and BRANCH at 0.95, wired into `gradle check`. The gate was verified to fail on deliberately uncovered code rather than assumed to work.",
-        "supply-chain": "Images are built by Jib from compiled classes \u2014 no Dockerfile and no container runtime in the build \u2014 with a fixed creation time so an unchanged tree produces a byte-identical image.",
+        "supply-chain": "Images are built by Jib from compiled classes — no Dockerfile and no container runtime in the build — with a fixed creation time so an unchanged tree produces a byte-identical image.",
         "audit": "audit_event is a first-class table rather than application logs, because who exported production logs is a record that must outlive log retention."
       }
     },
@@ -440,7 +480,8 @@
     },
     {
       "known-limitations": {
-        "single-api-replica": "The OAuth2 authorization request is held in an in-memory HTTP session between the redirect to Keycloak and the callback, so two API pods serving at once break login. replicaCount is pinned to 1 and the deployment strategy is Recreate, which trades a few seconds of downtime on upgrade for a login flow that always completes. Lifting this needs a shared session store; Spring Session JDBC was tried and rejected because Spring Security 7's authorization request is not Java-serializable, so the session store fails to persist it. A cookie-based authorization request repository is the likely fix. Scheduled for M6."
+        "lokistack-gateway": "The OpenShift Logging LokiStack gateway requires OpenShift bearer tokens, which the Loki client does not send; point LogGate at Grafana's Loki gateway or query frontend.",
+        "byte-cap-units": "The per-job byte cap is derived from Loki's raw line bytes but enforced on the JSON envelope written, roughly 2-2.7x larger on the demo data, so exports near their cap can fail. Reported, not yet fixed."
       }
     },
     {

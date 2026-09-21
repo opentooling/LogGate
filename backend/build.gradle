@@ -41,7 +41,8 @@ dependencies {
   implementation 'io.fabric8:kubernetes-client:7.9.0'
   implementation platform("software.amazon.awssdk:bom:2.55.1")
   implementation 'software.amazon.awssdk:s3'
-  implementation 'software.amazon.awssdk:apache-client'
+  // The Apache HttpClient 5 transport; the HttpClient 4 one is deprecated.
+  implementation 'software.amazon.awssdk:apache5-client'
   runtimeOnly 'org.postgresql:postgresql'
 
   testImplementation 'org.springframework.boot:spring-boot-starter-test'

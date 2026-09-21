@@ -112,7 +112,12 @@ function Job({
     <li className="job" data-state={job.state} data-testid="job">
       <div className="job-head">
         <span className={`state state-${job.state.toLowerCase()}`}>{job.state}</span>
-        <span className="namespaces">{job.namespaces.join(", ")}</span>
+        {job.clusters.length > 0 && (
+          <span className="clusters">{job.clusters.join(", ")}</span>
+        )}
+        <span className="namespaces">
+          {job.namespaces.length > 0 ? job.namespaces.join(", ") : "every namespace"}
+        </span>
         <span className="quiet range">
           {formatDuration(rangeSeconds)} to {new Date(job.to).toLocaleString()}
         </span>

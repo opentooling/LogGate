@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.opentooling.loggate.authz.AccessDecision;
 import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.DenialReason;
-import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
 import com.opentooling.loggate.export.ExportEstimate;
@@ -49,7 +48,7 @@ class ExportControllerTest {
   @Autowired private MockMvc mvc;
 
   @MockitoBean private AuthorizationGate authorization;
-  @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private com.opentooling.loggate.authz.NamespaceAccess access;
   @MockitoBean private QuotaGuard quotas;
   @MockitoBean private ExportService exports;
   @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
@@ -65,7 +64,7 @@ class ExportControllerTest {
   }
 
   private static void allowEverything(AuthorizationGate gate) {
-    when(gate.check(any(), any(), any()))
+    when(gate.check(any(), any(), any(), any()))
         .thenReturn(new AccessDecision(Set.of("platform-dev"), Map.of()));
   }
 
@@ -130,7 +129,7 @@ class ExportControllerTest {
   @Test
   void refusesBeforeAskingLokiAboutNamespacesTheCallerCannotRead() throws Exception {
     // Sizing a namespace the caller may not read would leak its volume.
-    when(authorization.check(any(), any(), any()))
+    when(authorization.check(any(), any(), any(), any()))
         .thenReturn(
             new AccessDecision(Set.of(), Map.of("platform-dev", DenialReason.NOT_A_GROUP_MEMBER)));
 
@@ -161,11 +160,12 @@ class ExportControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("the export range must end after it starts"));
 
-    verify(authorization, never()).check(any(), any(), any());
+    verify(authorization, never()).check(any(), any(), any(), any());
   }
 
   @Test
   void rejectsARequestWithNoNamespaces() throws Exception {
+    when(access.requiresNamespaces()).thenReturn(true);
     mvc.perform(
             post("/api/exports/estimate")
                 .with(alice())
@@ -173,6 +173,28 @@ class ExportControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"namespaces\":[],\"from\":\"2026-09-20T00:00:00Z\",\"to\":\"2026-09-21T00:00:00Z\"}"))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void acceptsNoNamespacesWhenTheAccessModeMeansEveryOne() throws Exception {
+    // Open mode: none named is every namespace, still subject to authorization.
+    when(access.requiresNamespaces()).thenReturn(false);
+    allowEverything(authorization);
+    when(exports.preflight(any(), any()))
+        .thenReturn(
+            new ExportService.Preflight(estimateOf(1024), new QuotaDecision(true, null, 67108864)));
+
+    mvc.perform(
+            post("/api/exports/estimate")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"namespaces\":[],\"clusters\":[\"edge-eu\"],"
+                        + "\"from\":\"2026-09-20T00:00:00Z\",\"to\":\"2026-09-21T00:00:00Z\"}"))
+        .andExpect(status().isOk());
+    verify(authorization)
+        .check(any(), org.mockito.ArgumentMatchers.eq(List.of("edge-eu")), org.mockito.ArgumentMatchers.eq(List.of()), any());
   }
 
   @Test
@@ -211,7 +233,8 @@ class ExportControllerTest {
         false,
         Instant.parse("2026-09-20T09:00:00Z"),
         null,
-        null);
+        null,
+        List.of());
   }
 
   @Test
@@ -253,7 +276,7 @@ class ExportControllerTest {
 
   @Test
   void refusesToSubmitForANamespaceTheCallerCannotRead() throws Exception {
-    when(authorization.check(any(), any(), any()))
+    when(authorization.check(any(), any(), any(), any()))
         .thenReturn(
             new AccessDecision(Set.of(), Map.of("platform-dev", DenialReason.NOT_A_GROUP_MEMBER)));
 
@@ -384,7 +407,7 @@ class ExportControllerTest {
     var id = java.util.UUID.randomUUID();
     when(exports.findFor(any(), org.mockito.ArgumentMatchers.eq(id)))
         .thenReturn(java.util.Optional.of(job(id, JobState.READY)));
-    when(authorization.check(any(), any(), any()))
+    when(authorization.check(any(), any(), any(), any()))
         .thenReturn(
             new AccessDecision(Set.of(), Map.of("platform-dev", DenialReason.NOT_A_GROUP_MEMBER)));
 

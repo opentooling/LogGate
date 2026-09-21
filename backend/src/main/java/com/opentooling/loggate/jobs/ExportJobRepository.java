@@ -38,10 +38,10 @@ public class ExportJobRepository {
                   """
                   INSERT INTO export_job (
                     id, requested_by, requested_by_name, requested_by_groups, state,
-                    namespaces, teams, pod_pattern, container_pattern, line_filter, selector,
-                    time_from, time_to, estimated_bytes, byte_limit, window_seconds,
+                    namespaces, clusters, teams, pod_pattern, container_pattern, line_filter,
+                    selector, time_from, time_to, estimated_bytes, byte_limit, window_seconds,
                     windows_total)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                   """)
               .param(id)
               .param(job.requestedBy())
@@ -49,6 +49,7 @@ public class ExportJobRepository {
               .param(job.groups().toArray(String[]::new))
               .param(JobState.PLANNED.name())
               .param(job.request().namespaces().toArray(String[]::new))
+              .param(job.request().clusters().toArray(String[]::new))
               .param(job.teams().toArray(String[]::new))
               .param(job.request().podPattern())
               .param(job.request().containerPattern())
@@ -367,7 +368,7 @@ public class ExportJobRepository {
       SELECT id, requested_by, state, failure_code, failure_detail, namespaces, selector,
              time_from, time_to, estimated_bytes, byte_limit, windows_total, windows_done,
              bytes_written, entries_written, cancel_requested, created_at, finished_at,
-             expires_at
+             expires_at, clusters
         FROM export_job
       """;
 
@@ -393,7 +394,8 @@ public class ExportJobRepository {
         rs.getBoolean("cancel_requested"),
         rs.getTimestamp("created_at").toInstant(),
         finished == null ? null : finished.toInstant(),
-        expires == null ? null : expires.toInstant());
+        expires == null ? null : expires.toInstant(),
+        List.of((String[]) rs.getArray("clusters").getArray()));
   }
 
   /** Records an artifact belonging to a job. Replaces any earlier row for the same key. */

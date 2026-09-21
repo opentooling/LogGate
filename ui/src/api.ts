@@ -2,13 +2,23 @@
 
 import { observeServerDate } from "./clock";
 
-export type Namespace = { name: string; team: string; owningGroup: string };
+/** A namespace on offer. Team and group are only known in team-label mode. */
+export type Namespace = { name: string; team: string | null; owningGroup: string | null };
+
+export type AccessMode = "TEAM_LABEL" | "OPEN";
 
 export type Me = {
   subject: string;
   name: string;
   groups: string[];
+  mode: AccessMode;
+  /** Whether an export may name no namespaces, meaning every one. */
+  namespacesOptional: boolean;
+  /** Clusters on offer; empty when logs are not told apart by cluster. */
+  clusters: string[];
   namespaces: Namespace[];
+  /** Why the caller can export nothing, or null when they can. */
+  barrier: string | null;
 };
 
 export type JobState =
@@ -27,6 +37,7 @@ export type ExportJob = {
   failureCode: string | null;
   failureDetail: string | null;
   namespaces: string[];
+  clusters: string[];
   selector: string;
   from: string;
   to: string;
@@ -59,7 +70,8 @@ export type Admission = { allowed: boolean; reason: string | null; byteLimit: nu
 
 export type Sizing = { estimate: Estimate; admission: Admission };
 
-export type TeamBudget = { team: string; usedBytes: number; limitBytes: number };
+/** A budget spent from: a team's, or in open mode the caller's own. */
+export type Budget = { holder: string; label: string; usedBytes: number; limitBytes: number };
 
 /** The limits an export is judged against, and what is already spent. */
 export type Quota = {
@@ -71,7 +83,7 @@ export type Quota = {
   activeExports: number;
   budgetWindowSeconds: number;
   retentionSeconds: number;
-  teams: TeamBudget[];
+  budgets: Budget[];
 };
 
 export type Download = {
@@ -83,6 +95,7 @@ export type Download = {
 };
 
 export type ExportRequest = {
+  clusters?: string[];
   namespaces: string[];
   podPattern?: string;
   containerPattern?: string;
@@ -147,7 +160,10 @@ function explain(status: number, body: unknown): string {
     if (typeof record.message === "string") return record.message;
     if (record.denied && typeof record.denied === "object") {
       const denied = Object.entries(record.denied as Record<string, string>)
-        .map(([namespace, reason]) => `${namespace} (${reason.toLowerCase().replaceAll("_", " ")})`)
+        .map(([key, reason]) => {
+          const what = key.startsWith("cluster/") ? `cluster ${key.slice("cluster/".length)}` : key;
+          return `${what} (${reason.toLowerCase().replaceAll("_", " ")})`;
+        })
         .join(", ");
       return `You are not allowed to export ${denied}.`;
     }
@@ -158,6 +174,11 @@ function explain(status: number, body: unknown): string {
 export const api = {
   me: () => call<Me>("/api/me"),
   quota: () => call<Quota>("/api/quota"),
+  namespaces: (clusters: string[]) =>
+    call<Namespace[]>(
+      "/api/namespaces" +
+        (clusters.length ? "?" + clusters.map((c) => `cluster=${encodeURIComponent(c)}`).join("&") : ""),
+    ),
   estimate: (request: ExportRequest) =>
     call<Sizing>("/api/exports/estimate", {
       method: "POST",

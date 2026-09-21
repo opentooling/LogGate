@@ -8,6 +8,12 @@
 {{- $group := $.Values.namespaces.groupTemplate | replace "{team}" . | replace "{env}" $.Values.namespaces.environment -}}
 {{- $groups = append $groups (dict "name" $group) -}}
 {{- end -}}
+{{- /* The open-mode role is granted to a group, not to users, which is how a
+       real realm usually hands it out; a user holds it only by membership. */ -}}
+{{- $roleGroup := .Values.keycloak.roleGroup -}}
+{{- $groups = append $groups (dict
+      "name" $roleGroup.name
+      "clientRoles" (dict .Values.oidc.clientId (list $roleGroup.role))) -}}
 {{- /* Seeded users carry a complete profile and no required actions: an
        incomplete profile triggers Keycloak's VERIFY_PROFILE screen on first
        login, which stalls any scripted or automated sign-in. */ -}}
@@ -17,6 +23,9 @@
 {{- range .teams -}}
 {{- $group := $.Values.namespaces.groupTemplate | replace "{team}" . | replace "{env}" $.Values.namespaces.environment -}}
 {{- $userGroups = append $userGroups (printf "/%s" $group) -}}
+{{- end -}}
+{{- if has .username $roleGroup.members -}}
+{{- $userGroups = append $userGroups (printf "/%s" $roleGroup.name) -}}
 {{- end -}}
 {{- $users = append $users (dict
       "username" .username
@@ -35,6 +44,9 @@
       "sslRequired" "none"
       "groups" $groups
       "users" $users
+      "roles" (dict "client" (dict .Values.oidc.clientId (list (dict
+        "name" $roleGroup.role
+        "description" "May export any log LogGate can reach, in open access mode"))))
       "clients" (list (dict
         "clientId" .Values.oidc.clientId
         "enabled" true

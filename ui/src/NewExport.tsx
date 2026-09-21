@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { api, ApiError, type Quota, type Sizing, type ExportRequest, type Me } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { api, ApiError, type Quota, type Sizing, type ExportRequest, type Me, type Namespace } from "./api";
+import { ClusterPicker, NamespacePicker } from "./Scope";
 import { formatApprox, formatBytes, formatDuration, usedFraction } from "./format";
 import { PRESETS, durationSeconds, rangeFor, toLocalInput } from "./ranges";
 
@@ -14,7 +15,14 @@ export function NewExport({
   onSubmitted: () => void;
   onError: (message: string) => void;
 }) {
-  const [namespaces, setNamespaces] = useState<string[]>([me.namespaces[0]!.name]);
+  // Team-label mode starts on the caller's first namespace, as a team usually
+  // wants its own. Open mode starts on nothing, which the form explains means
+  // everything, rather than guessing at one namespace among hundreds.
+  const [namespaces, setNamespaces] = useState<string[]>(
+    me.namespacesOptional || me.namespaces.length === 0 ? [] : [me.namespaces[0]!.name],
+  );
+  const [clusters, setClusters] = useState<string[]>([]);
+  const [available, setAvailable] = useState<Namespace[]>(me.namespaces);
   const [podPattern, setPodPattern] = useState("");
   const [lineFilter, setLineFilter] = useState("");
   const initial = rangeFor(PRESETS[0]!);
@@ -28,10 +36,34 @@ export function NewExport({
   // The longest range is a fixed limit, not a moving one, so it is worth
   // saying before the request is made rather than after it is refused.
   const rangeTooLong = quota !== null && seconds > quota.maxRangeSeconds;
-  const ready = busy === null && namespaces.length > 0 && rangeValid && !rangeTooLong;
+  const ready =
+    busy === null &&
+    (namespaces.length > 0 || me.namespacesOptional) &&
+    rangeValid &&
+    !rangeTooLong;
+
+  // In open mode the namespaces on offer depend on the clusters chosen: each
+  // cluster has its own. A namespace no longer on offer is dropped from the
+  // choice rather than silently exported from somewhere it is not.
+  useEffect(() => {
+    if (me.mode !== "OPEN") return;
+    let current = true;
+    api
+      .namespaces(clusters)
+      .then((list) => {
+        if (!current) return;
+        setAvailable(list);
+        setNamespaces((chosen) => chosen.filter((name) => list.some((n) => n.name === name)));
+      })
+      .catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+    return () => {
+      current = false;
+    };
+  }, [clusters, me.mode, onError]);
 
   function request(): ExportRequest {
     return {
+      clusters: me.mode === "OPEN" ? clusters : undefined,
       namespaces,
       podPattern: podPattern || undefined,
       lineFilter: lineFilter || undefined,
@@ -69,32 +101,24 @@ export function NewExport({
     <section className="card">
       <h2>New export</h2>
 
-      <fieldset>
-        <legend>Namespaces</legend>
-        <div className="checks">
-          {me.namespaces.map((namespace) => (
-            <label key={namespace.name} className="check">
-              <input
-                type="checkbox"
-                value={namespace.name}
-                checked={namespaces.includes(namespace.name)}
-                onChange={(e) => {
-                  setSizing(null);
-                  setNamespaces((current) =>
-                    e.target.checked
-                      ? [...current, namespace.name]
-                      : current.filter((name) => name !== namespace.name),
-                  );
-                }}
-              />
-              <span>
-                {namespace.name}
-                <small>{namespace.team}</small>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <ClusterPicker
+        me={me}
+        chosen={clusters}
+        onChange={(chosen) => {
+          setClusters(chosen);
+          setSizing(null);
+        }}
+      />
+
+      <NamespacePicker
+        available={available}
+        chosen={namespaces}
+        optional={me.namespacesOptional}
+        onChange={(chosen) => {
+          setNamespaces(chosen);
+          setSizing(null);
+        }}
+      />
 
       <fieldset>
         <legend>
@@ -278,24 +302,24 @@ function EstimateCard({ sizing }: { sizing: Sizing }) {
  * is something to plan a range around.
  */
 function Allowance({ quota }: { quota: Quota }) {
-  const budgeted = quota.teams.filter((team) => team.limitBytes > 0);
+  const budgeted = quota.budgets.filter((budget) => budget.limitBytes > 0);
   return (
     <details className="allowance" data-testid="allowance">
       <summary>Your allowance</summary>
-      {budgeted.map((team) => {
-        const fraction = usedFraction(team.usedBytes, team.limitBytes);
+      {budgeted.map((budget) => {
+        const fraction = usedFraction(budget.usedBytes, budget.limitBytes);
         return (
-          <div key={team.team} className="allowance-team">
+          <div key={budget.holder} className="allowance-team">
             <div className="allowance-label">
-              <span>{team.team}</span>
+              <span>{budget.label}</span>
               <span className="quiet">
-                {formatBytes(team.usedBytes)} of {formatBytes(team.limitBytes)}
+                {formatBytes(budget.usedBytes)} of {formatBytes(budget.limitBytes)}
               </span>
             </div>
             <div
               className="progress"
               role="progressbar"
-              aria-label={`${team.team} budget used`}
+              aria-label={`${budget.label} budget used`}
               aria-valuenow={Math.round(fraction * 100)}
               aria-valuemin={0}
               aria-valuemax={100}

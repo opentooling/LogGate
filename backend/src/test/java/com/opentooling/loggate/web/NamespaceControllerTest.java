@@ -15,8 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.opentooling.loggate.authz.AccessDecision;
 import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.DenialReason;
-import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.namespaces.NamespaceInfo;
+import com.opentooling.loggate.config.LogGateProperties;
 import com.opentooling.loggate.config.SecurityConfig;
 import java.util.List;
 import java.util.Map;
@@ -40,10 +40,9 @@ class NamespaceControllerTest {
 
   @Autowired private MockMvc mvc;
 
-  @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private com.opentooling.loggate.authz.NamespaceAccess access;
   @MockitoBean private QuotaGuard quotas;
   @MockitoBean private AuthorizationGate authorization;
-  @MockitoBean private com.opentooling.loggate.export.ExportEstimator estimator;
   @MockitoBean private com.opentooling.loggate.export.ExportService exports;
   @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
 
@@ -60,30 +59,78 @@ class NamespaceControllerTest {
 
   @Test
   void meReturnsTheCallerAndTheirNamespaces() throws Exception {
-    when(authorizer.visibleTo(any()))
+    when(access.mode()).thenReturn(LogGateProperties.AccessMode.TEAM_LABEL);
+    when(access.requiresNamespaces()).thenReturn(true);
+    when(access.namespaces(any(), any()))
         .thenReturn(List.of(new NamespaceInfo("platform-dev", "platform", "ad-platform-dev")));
 
     mvc.perform(get("/api/me").with(alice()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.name").value("alice"))
         .andExpect(jsonPath("$.subject").value("alice-subject"))
+        .andExpect(jsonPath("$.mode").value("TEAM_LABEL"))
+        .andExpect(jsonPath("$.namespacesOptional").value(false))
         .andExpect(jsonPath("$.namespaces[0].name").value("platform-dev"))
         .andExpect(jsonPath("$.namespaces[0].owningGroup").value("ad-platform-dev"));
   }
 
   @Test
+  void meSaysWhatTheCallerIsMissingWhenTheyCanExportNothing() throws Exception {
+    // The page explains the barrier in the access mode's own words: a group to
+    // join in team-label mode, a role to be granted in open mode.
+    when(access.mode()).thenReturn(LogGateProperties.AccessMode.OPEN);
+    when(access.clusters(any())).thenReturn(List.of("edge-eu", "core-us"));
+    when(access.barrier(any())).thenReturn("Exporting logs here needs the \"export-logs\" role");
+
+    mvc.perform(get("/api/me").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.mode").value("OPEN"))
+        .andExpect(jsonPath("$.namespacesOptional").value(true))
+        .andExpect(jsonPath("$.clusters[1]").value("core-us"))
+        .andExpect(jsonPath("$.barrier").value("Exporting logs here needs the \"export-logs\" role"));
+  }
+
+  @Test
   void namespacesListsWhatTheCallerMayExport() throws Exception {
-    when(authorizer.visibleTo(any()))
+    when(access.namespaces(any(), any()))
         .thenReturn(List.of(new NamespaceInfo("platform-dev", "platform", "ad-platform-dev")));
 
     mvc.perform(get("/api/namespaces").with(alice()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].team").value("platform"));
+    verify(access).namespaces(any(), eq(List.of()));
+  }
+
+  @Test
+  void namespacesAreNarrowedToTheClustersAskedFor() throws Exception {
+    when(access.namespaces(any(), any()))
+        .thenReturn(List.of(new NamespaceInfo("checkout-prod", null, null)));
+
+    mvc.perform(get("/api/namespaces?cluster=edge-eu&cluster=core-us").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].name").value("checkout-prod"));
+    verify(access).namespaces(any(), eq(List.of("edge-eu", "core-us")));
+  }
+
+  @Test
+  void authorizePassesClustersThroughWhenGiven() throws Exception {
+    when(authorization.check(any(), any(), any(), any()))
+        .thenReturn(new AccessDecision(Set.of("checkout-prod"), Map.of()));
+
+    mvc.perform(
+            post("/api/namespaces/authorize")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespaces\":[\"checkout-prod\"],\"clusters\":[\"edge-eu\"]}"))
+        .andExpect(status().isOk());
+    verify(authorization)
+        .check(any(), eq(List.of("edge-eu")), eq(List.of("checkout-prod")), anyString());
   }
 
   @Test
   void authorizeReturnsOkWhenEverythingIsAllowed() throws Exception {
-    when(authorization.check(any(), any(), any()))
+    when(authorization.check(any(), any(), any(), any()))
         .thenReturn(new AccessDecision(Set.of("platform-dev"), Map.of()));
 
     mvc.perform(
@@ -98,7 +145,7 @@ class NamespaceControllerTest {
 
   @Test
   void authorizeReturnsForbiddenWhenAnythingIsRefused() throws Exception {
-    when(authorization.check(any(), any(), any()))
+    when(authorization.check(any(), any(), any(), any()))
         .thenReturn(
             new AccessDecision(
                 Set.of(), Map.of("payments-dev", DenialReason.NOT_A_GROUP_MEMBER)));
@@ -114,7 +161,7 @@ class NamespaceControllerTest {
 
     // Auditing lives in AuthorizationGate, so the controller only has to pass
     // the caller and their address through.
-    verify(authorization).check(any(), eq(List.of("payments-dev")), anyString());
+    verify(authorization).check(any(), eq(List.of()), eq(List.of("payments-dev")), anyString());
   }
 
   @Test

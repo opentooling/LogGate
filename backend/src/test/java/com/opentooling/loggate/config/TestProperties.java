@@ -23,7 +23,8 @@ public final class TestProperties {
       LogGateProperties.Namespaces namespaces,
       LogGateProperties.Loki loki,
       LogGateProperties.Windows windows) {
-    return new LogGateProperties(namespaces, loki, windows, quotas(), execution(), storage());
+    return new LogGateProperties(
+        namespaces, loki, windows, quotas(), execution(), storage(), access());
   }
 
   /** Defaults with a different namespace section. */
@@ -33,20 +34,43 @@ public final class TestProperties {
 
   /** Defaults with a different quota section. */
   public static LogGateProperties withQuotas(LogGateProperties.Quotas quotas) {
-    return new LogGateProperties(namespaces(), loki(), windows(), quotas, execution(), storage());
+    return new LogGateProperties(
+        namespaces(), loki(), windows(), quotas, execution(), storage(), access());
   }
 
   /** Defaults with a different storage section. */
   public static LogGateProperties withStorage(LogGateProperties.Storage storage) {
-    return new LogGateProperties(namespaces(), loki(), windows(), quotas(), execution(), storage);
+    return new LogGateProperties(
+        namespaces(), loki(), windows(), quotas(), execution(), storage, access());
+  }
+
+  /** Defaults with a different access section. */
+  public static LogGateProperties withAccess(LogGateProperties.Access access) {
+    return new LogGateProperties(
+        namespaces(), loki(), windows(), quotas(), execution(), storage(), access);
+  }
+
+  /** Defaults with different namespace and Loki sections, for cluster tests. */
+  public static LogGateProperties withClusters(
+      LogGateProperties.Namespaces namespaces, LogGateProperties.Loki loki) {
+    return new LogGateProperties(
+        namespaces, loki, windows(), quotas(), execution(), storage(), access());
   }
 
   public static LogGateProperties.Namespaces namespaces() {
-    return new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev");
+    return new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", "");
+  }
+
+  public static LogGateProperties.Access access() {
+    return new LogGateProperties.Access(
+        LogGateProperties.AccessMode.TEAM_LABEL,
+        "",
+        Duration.ofDays(7),
+        Duration.ofSeconds(60));
   }
 
   public static LogGateProperties.Loki loki() {
-    return new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30));
+    return new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), "");
   }
 
   public static LogGateProperties.Windows windows() {
@@ -80,6 +104,8 @@ public final class TestProperties {
         "secret",
         true,
         "",
-        Duration.ofMinutes(30));
+        Duration.ofMinutes(30),
+        LogGateProperties.Storage.Checksums.WHEN_REQUIRED,
+        "");
   }
 }

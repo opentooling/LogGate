@@ -104,6 +104,50 @@ Three rules fall out of that:
 3. **Entitlement is re-checked at download.** A 48-hour artifact must not
    outlive the access that produced it.
 
+### Two access modes
+
+Team ownership is one answer to "who may read this", and it depends on being
+able to see the namespaces. When Loki collects from many clusters and LogGate
+can reach none of their APIs, it cannot. So `access.mode` chooses between two
+answers, behind one interface (`NamespaceAccess`) that every caller asks:
+
+| | team-label | open |
+| --- | --- | --- |
+| What is on offer | namespaces labelled as your team's, in this cluster | every namespace Loki holds, in every cluster |
+| Where that comes from | the Kubernetes API, watched | Loki's label values API, cached |
+| What grants access | a group claim matching the namespace's team | one client role on LogGate's OIDC client |
+| Namespaces | required | optional; none means all |
+| Budget charged to | the owning teams | the person |
+| Kubernetes access | a ClusterRole to read namespaces | none; no client is created |
+
+**The cluster pin.** When Loki holds several clusters' logs, told apart by a
+configured stream label, team-label mode offers only its own cluster and
+rewrites every request to it, whatever was asked. The Kubernetes API can vouch
+only for its own cluster's namespaces; without the pin, a team entitled to
+`platform-dev` here would also receive `platform-dev` from every other cluster
+that has one. The rewrite happens in `ExportService` before anything reads the
+request, so the query that runs, the size that is admitted and the job that is
+stored all describe the same thing. The chart refuses to render a cluster label
+in team-label mode without the cluster's own name to pin to.
+
+**The role, and where it is read from.** Keycloak puts client roles in the
+access token (`resource_access.<client>.roles`), not the ID token, unless its
+mapper is changed. Those are effective roles, so one granted to a group reaches
+every member. The access token is in hand only during sign-in, so
+`ClientRoleOidcUserService` copies the roles onto the signed-in user as
+authorities, which the session keeps. The token's signature is not checked: it
+came from the token endpoint over LogGate's own connection in the same response
+as the verified ID token. Open mode refuses to start without a role configured,
+so no setting, and no omission, makes every log readable by every signed-in
+user. The role is re-checked at download like any entitlement: revoke it, and
+exports made with it stop being downloadable.
+
+**Discovery is a convenience, not a grant.** In open mode the lists of clusters
+and namespaces come from Loki's index, cached for a minute and served stale if
+Loki blips. They decide what the page offers. The role decides what is allowed.
+A cluster Loki has never heard of is refused, which catches a typo before it
+becomes an export of nothing.
+
 ### Two deployment facts that are easy to get wrong
 
 **The issuer URL must be byte-identical** for the browser and for the
@@ -335,9 +379,48 @@ auditing.
 ## Deployment
 
 The chart ships the control plane, the workers and optionally PostgreSQL;
-Keycloak, Loki and object storage are expected to exist. The control plane must
-run in-cluster, because the namespace watch is a Kubernetes API client — that is
-the one hard placement constraint.
+Keycloak, Loki and object storage are expected to exist. In team-label mode the
+control plane must run in the cluster whose namespaces it authorizes, because
+the namespace watch is a Kubernetes API client. In open mode there is no such
+constraint: it needs only Loki, Keycloak, PostgreSQL and the object store.
+
+**OpenShift.** `openshift.enabled` leaves out every fixed `runAsUser`,
+`runAsGroup` and `fsGroup` so the `restricted-v2` SCC can assign them; every
+container already runs non-root, with all capabilities dropped, no privilege
+escalation, a read-only root filesystem and the `RuntimeDefault` seccomp
+profile. `route.enabled` serves the application through a Route whose timeout
+is raised to an hour, because the `.zip` download streams through the
+application and the router's 30-second default would cut it off. The network
+policy allows DNS to `openshift-dns` on port 5353 in that mode; upstream
+Kubernetes uses kube-dns on 53, and a policy written for one blocks all name
+resolution on the other. The chart's own probe and test pod use the
+application's image, whose user is numeric: an image whose user is a name
+cannot be checked against `runAsNonRoot` when no UID is set.
+`deploy/local/openshift-check.sh` verifies all of this without OpenShift, by
+installing into a namespace enforcing the restricted Pod Security Standard with
+every pod given an OpenShift-style UID. The one thing it cannot check is the
+OpenShift Logging `LokiStack` gateway, which requires OpenShift bearer tokens
+that LogGate does not send; point LogGate at Grafana's Loki gateway instead.
+
+### Object storage compatibility
+
+Any S3-compatible store works: MinIO, NetApp ONTAP S3 and StorageGRID among
+them. (NetApp Trident provisions file and block volumes, not S3; on NetApp, the
+object store is ONTAP S3 or StorageGRID.) LogGate uses multipart upload,
+GetObject, HeadObject, ListObjectsV2, per-object DeleteObject and presigned GET
+URLs. ONTAP S3 has supported all of them since 9.8, except presigned URLs,
+which need **9.11.1**.
+
+The difference that matters is at the edges. Since 2.30 the AWS SDK adds a
+trailing CRC32 to every upload, sent with aws-chunked encoding, which AWS
+accepts and which ONTAP S3 does not list among the payload modes it supports.
+`storage.checksums: whenRequired`, the default, keeps uploads plain.
+`S3ClientsTest` records the headers of real multipart uploads made through the
+production client factory and requires every payload mode to be one ONTAP
+documents; a control run with the AWS default proves the check would catch the
+trailer. On-premises stores are usually behind an internal certificate
+authority, which `storage.caCertificate` trusts for storage calls alone,
+leaving the rest of the JVM's trust untouched.
 
 Locally, `deploy/local/deploy.sh` creates a k3d cluster and installs Loki,
 Alloy, Grafana and MinIO alongside it, so the full path is exercised on a
@@ -349,22 +432,15 @@ Images are built with Jib from compiled classes: no Dockerfile, no container
 runtime in the build, and a fixed creation time so an unchanged tree produces a
 byte-identical image.
 
-## Known limitation: one API replica
+## Sessions and replicas
 
-The OAuth2 authorization request is held in an in-memory HTTP session between
-the redirect to Keycloak and the callback. Two API pods serving at once
-therefore break login — which a rolling update guarantees briefly, and which
-cost real debugging time to pin down because it looks like a flaky test.
-
-So `replicaCount` is pinned to 1 and the deployment strategy is `Recreate`,
-trading a few seconds of downtime on upgrade for a login flow that always
-completes.
-
-Lifting this needs shared session state. Spring Session JDBC was tried and
-rejected: Spring Security 7's authorization request is not Java-serializable,
-so the session store fails to persist it and login breaks differently. A
-cookie-based authorization request repository is the likely fix. Scheduled for
-M6.
+The OAuth2 authorization request is held in the HTTP session between the
+redirect to Keycloak and the callback, so every replica must see every session.
+Sessions are stored in PostgreSQL with Spring Session JDBC, serialized as JSON
+through Spring Security's Jackson modules: Spring Security 7's authorization
+request is not Java-serializable, which is what defeated the first attempt.
+The chart runs two replicas with a rolling update, and a login that starts on
+one pod finishes on the other.
 
 ## Bean wiring
 
@@ -418,6 +494,20 @@ Recorded in the model's `rejected-options` metadata, summarised here:
 
 The extraction engine sits behind an interface so any of these can be
 substituted per size tier without touching authorization, quotas or the UI.
+
+For open access across clusters:
+
+- **Reading each cluster's Kubernetes API** for namespace labels. Rejected:
+  LogGate would need credentials for, and a network path to, every cluster it
+  serves, which is exactly what running beside a central Loki avoids. Loki
+  already knows every cluster and namespace that has sent it a line.
+- **A group, rather than a client role, as the open-mode gate.** A group was
+  the first design; the role was chosen because it is scoped to LogGate's own
+  client, so granting it cannot mean anything to any other application, while
+  a group can still carry it for every member.
+- **Charging open-mode exports to the cluster**, or to nobody. Rejected: a
+  budget with nobody accountable is no budget, and the person exporting is the
+  one who can narrow the request.
 
 ## Keeping this current
 

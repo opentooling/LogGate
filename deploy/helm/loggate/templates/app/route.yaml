@@ -1,0 +1,28 @@
+{{- if .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "loggate.fullname" . }}
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+  annotations:
+    # The .zip download streams through the application for as long as the
+    # export takes to send; the router's 30s default would cut it off.
+    haproxy.router.openshift.io/timeout: {{ .Values.route.timeout | quote }}
+    {{- with .Values.route.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  host: {{ include "loggate.publicHost" . }}
+  to:
+    kind: Service
+    name: {{ include "loggate.fullname" . }}
+    weight: 100
+  port:
+    targetPort: http
+  {{- with .Values.route.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}

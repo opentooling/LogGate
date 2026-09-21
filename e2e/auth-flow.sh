@@ -36,7 +36,9 @@ login alice "$ALICE_JAR"
 r="$(api "$ALICE_JAR" GET /api/me)"
 check "signs in and /api/me returns 200" "200" "$(status "$r")"
 check "identifies the caller" "alice" "$(body "$r" | jq_get 'd["name"]')"
-check "carries the group claim" "ad-platform-dev" "$(body "$r" | jq_get '",".join(d["groups"])')"
+# She is also in log-exporters, the group that grants the open-mode role;
+# what matters here is that her team's group arrives.
+check "carries the group claim" "yes" "$(body "$r" | jq_get '"yes" if "ad-platform-dev" in d["groups"] else "no"')"
 check "sees only its own namespace" "platform-dev" "$(body "$r" | jq_get '",".join(n["name"] for n in d["namespaces"])')"
 
 r="$(api "$ALICE_JAR" POST /api/namespaces/authorize '{"namespaces":["platform-dev"]}')"

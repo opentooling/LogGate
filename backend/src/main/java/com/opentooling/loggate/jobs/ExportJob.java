@@ -26,6 +26,7 @@ import java.util.UUID;
  * @param createdAt when it was submitted
  * @param finishedAt when it stopped, if it has
  * @param expiresAt when its files are deleted, once it is ready
+ * @param clusters clusters it was taken from; empty with no cluster dimension
  */
 public record ExportJob(
     UUID id,
@@ -46,7 +47,8 @@ public record ExportJob(
     boolean cancelRequested,
     Instant createdAt,
     Instant finishedAt,
-    Instant expiresAt) {
+    Instant expiresAt,
+    List<String> clusters) {
 
   /**
    * Progress as a fraction, for a progress bar that means something.

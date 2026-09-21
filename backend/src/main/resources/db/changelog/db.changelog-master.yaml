@@ -9,3 +9,5 @@ databaseChangeLog:
       file: db/changelog/changes/0004-sessions.sql
   - include:
       file: db/changelog/changes/0005-team-budget.sql
+  - include:
+      file: db/changelog/changes/0006-job-clusters.sql

@@ -45,7 +45,8 @@ class ManifestBuilderTest {
         false,
         NOW.minus(Duration.ofHours(1)),
         null,
-        null);
+        null,
+        List.of());
   }
 
   private void withWindowsAndParts() {

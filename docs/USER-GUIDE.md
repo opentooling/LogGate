@@ -38,9 +38,13 @@ you are sent to the usual sign-in page; there is no separate LogGate password.
 
 ## What you can export
 
-You can export from a namespace when **your team owns it**. Ownership comes
-from a label on the namespace, and the label's value names the group that may
-read it:
+What is on offer depends on how your LogGate is set up. There are two modes.
+
+### Your team's namespaces
+
+In the default mode you can export from a namespace when **your team owns it**.
+Ownership comes from a label on the namespace, and the label's value names the
+group that may read it:
 
 | Namespace label            | Group that may export it |
 | -------------------------- | ------------------------ |
@@ -57,11 +61,46 @@ empty form:
 
 <img alt="A user in no team is told there is nothing to export and who to ask" src="images/08-no-namespaces.png" width="720">
 
+When your Loki holds more than one cluster's logs, this mode exports only from
+the cluster LogGate runs in, which the form shows at the top. It is the only
+cluster whose namespace owners LogGate can check: another cluster's
+`platform-dev` may belong to someone else entirely.
+
+### Every log, for people with the role
+
+In open mode, **every namespace Loki holds logs for, from every cluster that
+sends to it**, is available to anyone with LogGate's export role. Nobody's
+team matters. It suits a central Loki collecting from many clusters, where
+LogGate cannot see any of them directly.
+
+<img alt="Open access: two clusters on offer, edge-eu chosen, its namespaces listed, and an estimate across both" src="images/10-open-access.png" width="360" align="right">
+
+- **Clusters.** Tick the clusters you want. The namespaces listed follow what
+  you tick: each cluster has its own. Ticking none means every cluster.
+- **Namespaces.** Tick the ones you want, or none for every namespace in the
+  clusters you chose. The form says which you are about to get, and the
+  estimate shows the size before anything runs.
+- **Budget.** With no teams to charge, your exports count against your own
+  allowance.
+
+The role is granted in Keycloak, usually to a group you are added to. Without
+it you see nothing to export, and the page tells you what to ask for:
+
+<br clear="right">
+
+<img alt="Someone without the role is told which role, on which client, they need" src="images/11-no-role.png" width="720">
+
+Losing the role also stops you downloading exports you made while you held it.
+
 ## Making an export
 
 <img alt="The new export form with two namespaces selected and an estimate shown" src="images/03-estimate.png" width="360" align="right">
 
-**Namespaces.** Tick one or more. Each shows the team that owns it.
+**Cluster.** Shown at the top when your Loki holds more than one cluster's
+logs: fixed to one in the team mode, a choice in open mode.
+
+**Namespaces.** Tick one or more. Each shows the team that owns it. In open
+mode a long list gets a filter box, and ticking none means every namespace.
 
 **Time range.** Use a preset or set *From* and *To* yourself. The length of
 the range is shown next to the heading as you change it. The presets stop at
@@ -285,9 +324,15 @@ browser that started them.
 ## Questions
 
 **Why can't I see a namespace my team uses?**
-Either it has no team label, or its label names a team whose group you are not
-in. LogGate never guesses; ask whoever owns the namespace to label it or to add
-you to their group.
+In the team mode, either it has no team label, or its label names a team whose
+group you are not in. LogGate never guesses; ask whoever owns the namespace to
+label it or to add you to their group. In open mode, a namespace appears once
+it has sent Loki a log line within the discovery window, a week by default.
+
+**Why can I only choose one cluster?**
+Your LogGate is in the team mode, which exports only from its own cluster
+because that is the only one whose namespace owners it can check. Open mode
+offers every cluster.
 
 **Why is the download smaller than what is read from Loki?**
 Because of your *Line contains* filter. Loki reads every line in the range to

@@ -41,7 +41,7 @@ test.describe("LogGate", () => {
 
     // The selector is generated, never typed, so it is worth showing.
     await page.getByText("What will be queried").click();
-    await expect(estimate.locator("code")).toContainText('{namespace="platform-dev"}');
+    await expect(estimate.locator("code")).toContainText('namespace="platform-dev"');
   });
 
   test("an export runs to completion and offers its files", async ({ page }) => {
@@ -101,6 +101,20 @@ test.describe("LogGate", () => {
     // than warning about it.
     await expect(page.locator('[data-testid="refusal"]')).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Start export \(/ })).toBeVisible();
+  });
+
+  test("team-label mode shows the one cluster exports come from", async ({ page }) => {
+    await signIn(page, "alice");
+
+    // Fixed rather than offered: Kubernetes here can only vouch for its own
+    // cluster's namespaces, so there is nothing to choose.
+    const pinned = page.locator('[data-testid="pinned-cluster"]');
+    await expect(pinned).toContainText("k3d-loggate");
+    await expect(page.locator('[data-testid="clusters"]')).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Estimate first" }).click();
+    await page.getByText("What will be queried").click();
+    await expect(page.locator(".estimate code")).toContainText('cluster="k3d-loggate"');
   });
 
   test("dave has no namespaces and is told what to do about it", async ({ page }) => {

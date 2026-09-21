@@ -5,7 +5,12 @@ metadata:
   labels:
     {{- include "loggate.labels" . | nindent 4 }}
 ---
-{{- if .Values.rbac.create }}
+{{- /*
+Only team-label mode reads the Kubernetes API. In open mode the logs may come
+from clusters LogGate cannot reach at all, and it asks Loki instead, so it is
+granted nothing here.
+*/}}
+{{- if and .Values.rbac.create (eq (include "loggate.accessMode" .) "TEAM_LABEL") }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

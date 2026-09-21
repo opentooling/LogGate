@@ -19,7 +19,46 @@ public record LogGateProperties(
     @DefaultValue Windows windows,
     @DefaultValue Quotas quotas,
     @DefaultValue Execution execution,
-    @DefaultValue Storage storage) {
+    @DefaultValue Storage storage,
+    @DefaultValue Access access) {
+
+  /** How callers are granted namespaces. */
+  public enum AccessMode {
+    /**
+     * A namespace belongs to the team named by a label on it, read from the
+     * Kubernetes API, and only that team's group may export it.
+     */
+    TEAM_LABEL,
+    /**
+     * Every namespace Loki holds logs for is available to anyone holding
+     * {@code openRole}. Nothing is read from the Kubernetes API, so this works
+     * when the logs come from clusters LogGate cannot reach.
+     */
+    OPEN
+  }
+
+  /**
+   * @param mode how callers are granted namespaces
+   * @param openRole in open mode, the client role on LogGate's own OIDC client
+   *     that a caller must hold, directly or through a group, to see or export
+   *     anything. Required in open mode: there is no setting that opens every
+   *     log to every signed-in user
+   * @param discoveryWindow in open mode, how far back to look in Loki for the
+   *     clusters and namespaces to offer
+   * @param discoveryCacheTtl how long a discovered list is reused before Loki
+   *     is asked again
+   */
+  public record Access(
+      @DefaultValue("TEAM_LABEL") AccessMode mode,
+      @DefaultValue("") String openRole,
+      @DefaultValue("7d") Duration discoveryWindow,
+      @DefaultValue("60s") Duration discoveryCacheTtl) {
+
+    /** Whether callers are granted namespaces by team label. */
+    public boolean teamLabel() {
+      return mode == AccessMode.TEAM_LABEL;
+    }
+  }
 
   /**
    * @param maxRange longest range one export may cover
@@ -70,6 +109,13 @@ public record LogGateProperties(
    * @param publicEndpoint endpoint a browser can reach, when it differs from
    *     the in-cluster one; presigned URLs are signed against this
    * @param presignedUrlLifetime how long a download link stays valid
+   * @param checksums when the SDK adds integrity checksums to requests. AWS
+   *     accepts them always; many S3-compatible stores, ONTAP S3 among them,
+   *     do not document the trailing-checksum encoding the SDK uses by default,
+   *     so the default is to send one only when the operation requires it
+   * @param caCertificate path to a PEM file of certificates to trust for the
+   *     storage endpoint, for stores behind an internal certificate authority;
+   *     empty uses the JVM's default trust
    */
   public record Storage(
       @DefaultValue("http://minio.observability.svc.cluster.local:9000") String endpoint,
@@ -79,7 +125,18 @@ public record LogGateProperties(
       @DefaultValue("") String secretKey,
       @DefaultValue("true") boolean pathStyle,
       @DefaultValue("") String publicEndpoint,
-      @DefaultValue("30m") Duration presignedUrlLifetime) {}
+      @DefaultValue("30m") Duration presignedUrlLifetime,
+      @DefaultValue("WHEN_REQUIRED") Checksums checksums,
+      @DefaultValue("") String caCertificate) {
+
+    /** When integrity checksums are added to storage requests. */
+    public enum Checksums {
+      /** Only when the operation demands one. Compatible with most stores. */
+      WHEN_REQUIRED,
+      /** Whenever the operation supports one. AWS's default; AWS S3 only. */
+      WHEN_SUPPORTED
+    }
+  }
 
   /**
    * @param enabled whether to resolve namespaces from the Kubernetes API; when
@@ -88,12 +145,16 @@ public record LogGateProperties(
    * @param groupTemplate template rendering the owning group from the team, with
    *     {@code {team}} and {@code {env}} placeholders, e.g. {@code ad-{team}-{env}}
    * @param environment value substituted for {@code {env}}
+   * @param cluster this cluster's name in Loki's cluster label. The Kubernetes
+   *     API can only vouch for its own cluster's namespaces, so in team-label
+   *     mode every export is pinned to it; required when a cluster label is set
    */
   public record Namespaces(
       @DefaultValue("true") boolean enabled,
       @DefaultValue("xyz.com/team") String labelKey,
       @DefaultValue("ad-{team}-{env}") String groupTemplate,
-      @DefaultValue("dev") String environment) {}
+      @DefaultValue("dev") String environment,
+      @DefaultValue("") String cluster) {}
 
   /**
    * @param url base URL of the Loki read path, usually its gateway
@@ -102,12 +163,21 @@ public record LogGateProperties(
    * @param queryLimit entries per {@code query_range} page, which must not
    *     exceed Loki's own {@code max_entries_limit_per_query}
    * @param timeout per-request timeout
+   * @param clusterLabel the stream label naming the cluster a log came from,
+   *     when Loki holds more than one cluster's logs; empty when it does not
    */
   public record Loki(
       @DefaultValue("http://loki-gateway.observability.svc.cluster.local") String url,
       @DefaultValue("") String tenantId,
       @DefaultValue("5000") int queryLimit,
-      @DefaultValue("60s") Duration timeout) {}
+      @DefaultValue("60s") Duration timeout,
+      @DefaultValue("") String clusterLabel) {
+
+    /** Whether logs are told apart by cluster. */
+    public boolean hasClusters() {
+      return !clusterLabel.isBlank();
+    }
+  }
 
   /**
    * @param targetBytes bytes a single window should produce; sized so parts

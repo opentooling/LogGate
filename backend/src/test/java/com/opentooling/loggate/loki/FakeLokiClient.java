@@ -53,6 +53,34 @@ public class FakeLokiClient implements LokiClient {
     return this;
   }
 
+  private final Map<String, List<String>> labelValues = new LinkedHashMap<>();
+  private final List<String> labelQueries = new ArrayList<>();
+
+  /**
+   * Sets the values of {@code label} among streams matching {@code selector};
+   * an empty selector is the answer for every stream.
+   */
+  public FakeLokiClient labelValues(String label, String selector, String... values) {
+    labelValues.put(label + "|" + selector, List.of(values));
+    return this;
+  }
+
+  /** The label discovery calls made, as {@code label|selector}. */
+  public List<String> labelQueries() {
+    return List.copyOf(labelQueries);
+  }
+
+  @Override
+  public List<String> labelValues(String label, String selector, Instant from, Instant to) {
+    String key = label + "|" + (selector == null ? "" : selector);
+    labelQueries.add(key);
+    RuntimeException fault = faults.poll();
+    if (fault != null) {
+      throw fault;
+    }
+    return labelValues.getOrDefault(key, List.of());
+  }
+
   /** How many query_range calls were made. */
   public int queries() {
     return queries;

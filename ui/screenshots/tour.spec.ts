@@ -138,7 +138,9 @@ test("the tour, as someone in two teams", async ({ page }) => {
   // Typing leaves a focus ring and a selected field, which is not what anyone
   // sees when they read the message.
   await page.getByLabel("To").blur();
-  const range = newExport(page).locator("fieldset").nth(1);
+  const range = newExport(page).locator("fieldset", {
+    has: page.locator("legend", { hasText: "Time range" }),
+  });
   await expect(range.locator(".field-error")).toContainText("at most");
   await range.screenshot({ path: `${OUT}/05-range-limit.png` });
 });
@@ -170,4 +172,40 @@ test("on a phone", async ({ browser }) => {
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `${OUT}/09-phone.png` });
   await context.close();
+});
+
+/**
+ * Open access mode, against a release running in it. Set OPEN_APP_URL to one;
+ * deploy/local/openshift-check.sh with KEEP=1 leaves one at
+ * http://ocp-loggate.localtest.me:8088. Skipped without it.
+ */
+test.describe("open access", () => {
+  test.skip(!process.env.OPEN_APP_URL, "OPEN_APP_URL is not set");
+  test.use({ baseURL: process.env.OPEN_APP_URL });
+
+  test("every cluster Loki holds, to holders of the role", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await signIn(page, "carol");
+
+    // Choosing a cluster narrows the namespaces to that cluster's own, which
+    // here is one LogGate has no Kubernetes access to at all.
+    await page.getByRole("checkbox", { name: "edge-eu" }).check();
+    const namespaces = page.locator('[data-testid="namespaces"]');
+    await expect(namespaces).toContainText("checkout-prod");
+    await expect(namespaces).not.toContainText("observability");
+
+    await page.getByRole("button", { name: "Estimate first" }).click();
+    await expect(page.locator(".estimate .breakdown li")).toHaveCount(2);
+    await newExport(page).screenshot({ path: `${OUT}/10-open-access.png` });
+  });
+
+  test("and nothing to anyone without it", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await signIn(page, "bob");
+    await expect(page.locator('[data-testid="barrier"]')).toContainText("export-logs");
+    await page.screenshot({
+      path: `${OUT}/11-no-role.png`,
+      clip: { x: 0, y: 0, width: 1280, height: 400 },
+    });
+  });
 });

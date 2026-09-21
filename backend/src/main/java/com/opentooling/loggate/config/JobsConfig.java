@@ -12,7 +12,6 @@ import com.opentooling.loggate.jobs.WorkerRunner;
 import com.opentooling.loggate.observability.ExportMetrics;
 import com.opentooling.loggate.quota.QuotaGuard;
 import com.opentooling.loggate.storage.ObjectStore;
-import java.net.URI;
 import java.time.Clock;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,11 +21,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import tools.jackson.databind.ObjectMapper;
 
@@ -67,50 +62,22 @@ public class JobsConfig {
       WindowPlanner planner,
       QuotaGuard quotas,
       ExportJobRepository jobs,
-      com.opentooling.loggate.namespaces.NamespaceCatalog namespaces,
+      com.opentooling.loggate.authz.NamespaceAccess access,
       AuditService audit,
       ExportMetrics metrics) {
-    return new ExportService(estimator, planner, quotas, jobs, namespaces, audit, metrics);
+    return new ExportService(estimator, planner, quotas, jobs, access, audit, metrics);
   }
 
   @Bean
   S3Client s3Client(LogGateProperties properties) {
-    LogGateProperties.Storage storage = properties.storage();
-    return S3Client.builder()
-        .endpointOverride(URI.create(storage.endpoint()))
-        .region(Region.of(storage.region()))
-        // Static keys when configured, otherwise the default chain, so a
-        // production deployment can use an IAM role instead of a secret.
-        .credentialsProvider(credentials(storage))
-        // MinIO addresses buckets by path, not by subdomain.
-        .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(storage.pathStyle()).build())
-        .build();
+    return com.opentooling.loggate.storage.S3Clients.client(properties.storage());
   }
 
   @Bean
   public S3Presigner s3Presigner(LogGateProperties properties) {
-    LogGateProperties.Storage storage = properties.storage();
-    return S3Presigner.builder()
-        // Presigned URLs are opened by a browser, so they must carry the URL a
-        // browser can reach, which is not always the in-cluster endpoint.
-        .endpointOverride(URI.create(publicEndpoint(storage)))
-        .region(Region.of(storage.region()))
-        .credentialsProvider(credentials(storage))
-        .serviceConfiguration(
-            S3Configuration.builder().pathStyleAccessEnabled(storage.pathStyle()).build())
-        .build();
-  }
-
-  private static String publicEndpoint(LogGateProperties.Storage storage) {
-    return storage.publicEndpoint().isBlank() ? storage.endpoint() : storage.publicEndpoint();
-  }
-
-  private static software.amazon.awssdk.auth.credentials.AwsCredentialsProvider credentials(
-      LogGateProperties.Storage storage) {
-    return storage.accessKey().isBlank()
-        ? software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider.builder().build()
-        : StaticCredentialsProvider.create(
-            AwsBasicCredentials.create(storage.accessKey(), storage.secretKey()));
+    // Presigned URLs are opened by a browser, so they must carry the URL a
+    // browser can reach, which is not always the in-cluster endpoint.
+    return com.opentooling.loggate.storage.S3Clients.presigner(properties.storage());
   }
 
   @Bean

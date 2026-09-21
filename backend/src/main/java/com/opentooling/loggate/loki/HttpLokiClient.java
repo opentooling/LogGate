@@ -27,6 +27,9 @@ import tools.jackson.databind.ObjectMapper;
  */
 public class HttpLokiClient implements LokiClient {
 
+  private static final java.util.regex.Pattern LABEL_NAME =
+      java.util.regex.Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
+
   private static final Logger log = LoggerFactory.getLogger(HttpLokiClient.class);
 
   private static final int MAX_ATTEMPTS = 5;
@@ -73,7 +76,14 @@ public class HttpLokiClient implements LokiClient {
         get(
             "/loki/api/v1/index/volume",
             new LinkedHashMap<>(
-                Map.of("query", selector, "start", nanos(from), "end", nanos(to))));
+                Map.of(
+                    "query", selector,
+                    "start", nanos(from),
+                    "end", nanos(to),
+                    // Without this Loki groups by whatever labels the selector
+                    // names, so a selector matching only on cluster would come
+                    // back as one total with no namespace in it at all.
+                    "targetLabels", "namespace")));
 
     Map<String, Long> byNamespace = new LinkedHashMap<>();
     for (JsonNode result : body.path("data").path("result")) {
@@ -132,6 +142,30 @@ public class HttpLokiClient implements LokiClient {
     // Loki returns one array per stream; the pager needs a single ordering.
     entries.sort(Comparator.comparingLong(LogEntry::timestampNanos));
     return new QueryPage(List.copyOf(entries), limit);
+  }
+
+  @Override
+  public List<String> labelValues(String label, String selector, Instant from, Instant to) {
+    // The label name goes into the path rather than a query parameter, so it is
+    // held to what a label name can be rather than trusted to be one.
+    if (!LABEL_NAME.matcher(label).matches()) {
+      throw new IllegalArgumentException("not a valid label name: " + label);
+    }
+    Map<String, Object> params = new LinkedHashMap<>();
+    params.put("start", nanos(from));
+    params.put("end", nanos(to));
+    if (selector != null && !selector.isBlank()) {
+      params.put("query", selector);
+    }
+    JsonNode body = get("/loki/api/v1/label/" + label + "/values", params);
+    List<String> values = new ArrayList<>();
+    for (JsonNode value : body.path("data")) {
+      String text = value.asString();
+      if (!text.isEmpty()) {
+        values.add(text);
+      }
+    }
+    return List.copyOf(values);
   }
 
   /**

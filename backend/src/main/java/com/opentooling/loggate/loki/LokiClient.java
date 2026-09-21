@@ -37,4 +37,15 @@ public interface LokiClient {
    * last timestamp will see the entries at that timestamp again.
    */
   QueryPage queryRange(String selector, Instant from, Instant to, int limit);
+
+  /**
+   * The values a label takes over a range, optionally only among streams
+   * matching {@code selector}. Read from the index, so it costs no log reads.
+   *
+   * <p>This is how clusters and namespaces are discovered when they cannot be
+   * read from the Kubernetes API: Loki knows every one it holds logs for.
+   *
+   * @param selector a stream selector to scope by, or empty for every stream
+   */
+  java.util.List<String> labelValues(String label, String selector, Instant from, Instant to);
 }

@@ -63,15 +63,19 @@ spec:
               memory: 64Mi
         # The OIDC issuer is resolved at startup, so the application cannot
         # boot before Keycloak serves its discovery document.
+        # The application's own image, which has wget: pinned to the release's
+        # tag rather than a third-party image at :latest, and nothing extra to
+        # pull or to approve for an air-gapped registry.
         - name: wait-for-issuer
-          image: curlimages/curl:latest
+          image: {{ include "loggate.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "loggate.containerSecurityContext" . | nindent 12 }}
           command:
             - sh
             - -c
             - |
-              until curl -sf "$ISSUER/.well-known/openid-configuration" > /dev/null; do
+              until wget -q -T 5 -O /dev/null "$ISSUER/.well-known/openid-configuration"; do
                 echo "waiting for $ISSUER"
                 sleep 3
               done
@@ -131,6 +135,16 @@ spec:
               value: {{ .Values.namespaces.enabled | quote }}
             - name: LOKI_URL
               value: {{ .Values.loki.url | quote }}
+            - name: LOKI_CLUSTER_LABEL
+              value: {{ .Values.loki.clusterLabel | quote }}
+            - name: ACCESS_MODE
+              value: {{ include "loggate.accessMode" . | quote }}
+            - name: ACCESS_OPEN_ROLE
+              value: {{ .Values.access.openRole | quote }}
+            - name: ACCESS_DISCOVERY_WINDOW
+              value: {{ .Values.access.discoveryWindow | quote }}
+            - name: CLUSTER_NAME
+              value: {{ .Values.namespaces.cluster | quote }}
             - name: S3_ENDPOINT
               value: {{ .Values.storage.endpoint | quote }}
             - name: S3_REGION
@@ -141,6 +155,12 @@ spec:
               value: {{ .Values.storage.pathStyle | quote }}
             - name: S3_PRESIGNED_URL_LIFETIME
               value: {{ .Values.storage.presignedUrlLifetime | quote }}
+            - name: S3_CHECKSUMS
+              value: {{ if eq .Values.storage.checksums "whenSupported" }}WHEN_SUPPORTED{{ else if eq .Values.storage.checksums "whenRequired" }}WHEN_REQUIRED{{ else }}{{ fail (printf "storage.checksums must be whenRequired or whenSupported, not %q" .Values.storage.checksums) }}{{ end }}
+            {{- if .Values.storage.caCertificate.secretName }}
+            - name: S3_CA_CERTIFICATE
+              value: /etc/loggate/storage-ca/{{ .Values.storage.caCertificate.key }}
+            {{- end }}
             {{- with .Values.storage.publicEndpoint }}
             - name: S3_PUBLIC_ENDPOINT
               value: {{ . | quote }}
@@ -219,9 +239,22 @@ spec:
             # readOnlyRootFilesystem is on, so the JVM needs a writable tmp.
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.storage.caCertificate.secretName }}
+            - name: storage-ca
+              mountPath: /etc/loggate/storage-ca
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.storage.caCertificate.secretName }}
+        - name: storage-ca
+          secret:
+            secretName: {{ .Values.storage.caCertificate.secretName }}
+            items:
+              - key: {{ .Values.storage.caCertificate.key }}
+                path: {{ .Values.storage.caCertificate.key }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

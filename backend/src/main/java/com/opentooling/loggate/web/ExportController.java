@@ -2,6 +2,7 @@ package com.opentooling.loggate.web;
 
 import com.opentooling.loggate.authz.AccessDecision;
 import com.opentooling.loggate.authz.AuthorizationGate;
+import com.opentooling.loggate.authz.NamespaceAccess;
 import com.opentooling.loggate.export.ExportEstimate;
 import com.opentooling.loggate.export.ExportRequest;
 import com.opentooling.loggate.delivery.DeliveryService;
@@ -29,14 +30,33 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class ExportController {
 
   private final AuthorizationGate authorization;
+  private final NamespaceAccess access;
   private final ExportService exports;
   private final DeliveryService delivery;
 
   public ExportController(
-      AuthorizationGate authorization, ExportService exports, DeliveryService delivery) {
+      AuthorizationGate authorization,
+      NamespaceAccess access,
+      ExportService exports,
+      DeliveryService delivery) {
     this.authorization = authorization;
+    this.access = access;
     this.exports = exports;
     this.delivery = delivery;
+  }
+
+  /**
+   * What is wrong with the shape of {@code request}, before anyone is asked
+   * whether it is allowed, or null when nothing is.
+   */
+  private String invalid(ExportRequest request) {
+    if (!request.hasValidRange()) {
+      return "the export range must end after it starts";
+    }
+    if (access.requiresNamespaces() && request.namespaces().isEmpty()) {
+      return "choose at least one namespace";
+    }
+    return null;
   }
 
   /**
@@ -54,14 +74,15 @@ public class ExportController {
       @AuthenticationPrincipal OidcUser principal,
       @Valid @RequestBody ExportRequest request,
       HttpServletRequest httpRequest) {
-    if (!request.hasValidRange()) {
-      return ResponseEntity.badRequest()
-          .body(new ApiError("the export range must end after it starts"));
+    String problem = invalid(request);
+    if (problem != null) {
+      return ResponseEntity.badRequest().body(new ApiError(problem));
     }
 
     AuthenticatedUser user = AuthenticatedUser.from(principal);
     AccessDecision decision =
-        authorization.check(user, request.namespaces(), ClientAddress.of(httpRequest));
+        authorization.check(
+            user, request.clusters(), request.namespaces(), ClientAddress.of(httpRequest));
     if (!decision.isFullyAllowed()) {
       return ResponseEntity.status(403).body(decision);
     }
@@ -87,16 +108,17 @@ public class ExportController {
       @AuthenticationPrincipal OidcUser principal,
       @Valid @RequestBody ExportRequest request,
       HttpServletRequest httpRequest) {
-    if (!request.hasValidRange()) {
-      return ResponseEntity.badRequest()
-          .body(new ApiError("the export range must end after it starts"));
+    String problem = invalid(request);
+    if (problem != null) {
+      return ResponseEntity.badRequest().body(new ApiError(problem));
     }
     AuthenticatedUser user = AuthenticatedUser.from(principal);
     String sourceIp = ClientAddress.of(httpRequest);
 
-    AccessDecision access = authorization.check(user, request.namespaces(), sourceIp);
-    if (!access.isFullyAllowed()) {
-      return ResponseEntity.status(403).body(access);
+    AccessDecision decision =
+        authorization.check(user, request.clusters(), request.namespaces(), sourceIp);
+    if (!decision.isFullyAllowed()) {
+      return ResponseEntity.status(403).body(decision);
     }
 
     try {
@@ -198,8 +220,9 @@ public class ExportController {
           org.springframework.http.HttpStatus.CONFLICT,
           "this export is " + job.state() + ", so there is nothing to download");
     }
-    AccessDecision access = authorization.check(user, job.namespaces(), "download");
-    if (!access.isFullyAllowed()) {
+    AccessDecision decision =
+        authorization.check(user, job.clusters(), job.namespaces(), "download");
+    if (!decision.isFullyAllowed()) {
       throw new org.springframework.web.server.ResponseStatusException(
           org.springframework.http.HttpStatus.FORBIDDEN, "no longer entitled to these namespaces");
     }

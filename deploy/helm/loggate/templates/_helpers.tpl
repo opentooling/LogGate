@@ -107,7 +107,7 @@ that same URL, which locally means resolving it to the ingress.
 {{- else if .Values.keycloak.enabled -}}
 {{- printf "%s/login/oauth2/code/keycloak" (.Values.keycloak.appUrl | trimSuffix "/") -}}
 {{- else -}}
-{{- printf "https://%s/login/oauth2/code/keycloak" .Values.ingress.host -}}
+{{- printf "https://%s/login/oauth2/code/keycloak" (include "loggate.publicHost" .) -}}
 {{- end -}}
 {{- end -}}
 
@@ -119,8 +119,34 @@ that same URL, which locally means resolving it to the ingress.
 {{- end -}}
 {{- end -}}
 
+{{/*
+Whether to run under OpenShift's restricted-v2 SCC. The older top-level
+`openShift` flag is honoured alongside `openshift.enabled`.
+*/}}
+{{- define "loggate.openshift" -}}
+{{- if or .Values.openShift (and .Values.openshift .Values.openshift.enabled) -}}true{{- end -}}
+{{- end -}}
+
+{{/* The host the browser uses for the application: the Route's, or the Ingress's. */}}
+{{- define "loggate.publicHost" -}}
+{{- if .Values.route.enabled -}}
+{{- required "route.host is required when route.enabled is true" .Values.route.host -}}
+{{- else -}}
+{{- .Values.ingress.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/* access.mode as the application spells it. */}}
+{{- define "loggate.accessMode" -}}
+{{- $mode := .Values.access.mode | default "teamLabel" -}}
+{{- if eq $mode "teamLabel" -}}TEAM_LABEL
+{{- else if eq $mode "open" -}}OPEN
+{{- else -}}{{- fail (printf "access.mode must be teamLabel or open, not %q" $mode) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "loggate.podSecurityContext" -}}
-{{- if not .Values.openShift }}
+{{- if not (include "loggate.openshift" .) }}
 runAsUser: 10001
 runAsGroup: 10001
 fsGroup: 10001

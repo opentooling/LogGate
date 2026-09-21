@@ -29,7 +29,8 @@ class ExportJobTest {
         false,
         Instant.EPOCH,
         null,
-        null);
+        null,
+        List.of());
   }
 
   @Test

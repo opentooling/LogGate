@@ -37,6 +37,12 @@ alloy:
         endpoint {
           url = "http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push"
         }
+        // Every stream names its cluster, as each cluster's shipper would when
+        // several send to one Loki. deploy/local/seed-remote-cluster.sh pushes
+        // a second cluster's logs alongside these.
+        external_labels = {
+          cluster = "k3d-loggate",
+        }
       }
   resources:
     requests:

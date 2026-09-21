@@ -35,8 +35,8 @@ class ExportEstimatorTest {
   private static WindowPlanner planner() {
     return new WindowPlanner(
         TestProperties.of(
-            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
-            new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30)),
+            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
+            new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), ""),
             new LogGateProperties.Windows(256 * MB, Duration.ofMinutes(1), Duration.ofHours(1), 5000)));
   }
 

@@ -44,6 +44,9 @@ loggate:
     tenant-id: ${LOKI_TENANT_ID:}
     query-limit: ${LOKI_QUERY_LIMIT:5000}
     timeout: ${LOKI_TIMEOUT:60s}
+    # The stream label naming each log's source cluster, when Loki holds more
+    # than one. Empty turns the cluster dimension off.
+    cluster-label: ${LOKI_CLUSTER_LABEL:}
   windows:
     target-bytes: ${WINDOW_TARGET_BYTES:268435456}
     min-duration: ${WINDOW_MIN_DURATION:1m}
@@ -73,11 +76,27 @@ loggate:
     # How long a download link stays valid. Long enough to start a large
     # download, short enough that a link pasted into a chat stops working.
     presigned-url-lifetime: ${S3_PRESIGNED_URL_LIFETIME:30m}
+    # WHEN_REQUIRED unless the store is AWS S3 itself: most S3-compatible
+    # stores do not accept the trailing checksums the SDK adds by default.
+    checksums: ${S3_CHECKSUMS:WHEN_REQUIRED}
+    ca-certificate: ${S3_CA_CERTIFICATE:}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}
     group-template: ${TEAM_GROUP_TEMPLATE:ad-{team}-{env}}
     environment: ${ENVIRONMENT:dev}
+    # This cluster's name in the cluster label, which team-label mode pins
+    # every export to.
+    cluster: ${CLUSTER_NAME:}
+  access:
+    # TEAM_LABEL: teams export the namespaces labelled as theirs, read from the
+    # Kubernetes API. OPEN: every namespace in Loki, to holders of open-role.
+    mode: ${ACCESS_MODE:TEAM_LABEL}
+    # A client role on this application's OIDC client, held directly or through
+    # a group. Required in OPEN mode.
+    open-role: ${ACCESS_OPEN_ROLE:}
+    discovery-window: ${ACCESS_DISCOVERY_WINDOW:7d}
+    discovery-cache-ttl: ${ACCESS_DISCOVERY_CACHE_TTL:60s}
 
 server:
   shutdown: graceful

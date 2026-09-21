@@ -7,7 +7,6 @@ import com.opentooling.loggate.jobs.ExportJobRepository;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 
 /**
@@ -39,18 +38,21 @@ public class QuotaGuard {
    * refusal.
    *
    * @param subject the caller, for their own concurrency count
-   * @param teams the teams whose budgets to report
+   * @param holders the budgets to report: the caller's teams, or the caller
    */
-  public QuotaReport report(String subject, Collection<String> teams) {
+  public QuotaReport report(String subject, List<BudgetHolder> holders) {
     Instant since = clock.instant().minus(quotas.budgetWindow());
-    List<QuotaReport.TeamBudget> budgets =
-        teams.stream()
+    List<QuotaReport.Budget> budgets =
+        holders.stream()
             .distinct()
-            .sorted()
+            .sorted(java.util.Comparator.comparing(BudgetHolder::label))
             .map(
-                team ->
-                    new QuotaReport.TeamBudget(
-                        team, spentBy(team, since), Math.max(quotas.dailyBytesPerTeam(), 0)))
+                holder ->
+                    new QuotaReport.Budget(
+                        holder.id(),
+                        holder.label(),
+                        spentBy(holder.id(), since),
+                        Math.max(quotas.dailyBytesPerTeam(), 0)))
             .toList();
     return new QuotaReport(
         quotas.maxRange().toSeconds(),
@@ -65,13 +67,13 @@ public class QuotaGuard {
   }
 
   /** Nothing is spent when the budget is switched off, and nothing is queried. */
-  private long spentBy(String team, Instant since) {
-    return quotas.dailyBytesPerTeam() <= 0 ? 0 : jobs.bytesExportedByTeamSince(team, since);
+  private long spentBy(String holder, Instant since) {
+    return quotas.dailyBytesPerTeam() <= 0 ? 0 : jobs.bytesExportedByTeamSince(holder, since);
   }
 
   /** Checks {@code request} before it becomes a job. */
   public QuotaDecision admit(
-      String subject, Collection<String> teams, ExportRequest request, ExportEstimate estimate) {
+      String subject, List<BudgetHolder> holders, ExportRequest request, ExportEstimate estimate) {
     Duration range = request.duration();
     if (range.compareTo(quotas.maxRange()) > 0) {
       return QuotaDecision.refused(
@@ -96,7 +98,7 @@ public class QuotaGuard {
               .formatted(all));
     }
 
-    QuotaDecision overBudget = checkDailyBudget(teams, estimate.estimatedBytes());
+    QuotaDecision overBudget = checkDailyBudget(holders, estimate.estimatedBytes());
     if (overBudget != null) {
       return overBudget;
     }
@@ -117,19 +119,19 @@ public class QuotaGuard {
    *
    * @return a refusal, or null when there is room
    */
-  private QuotaDecision checkDailyBudget(Collection<String> teams, long estimatedBytes) {
+  private QuotaDecision checkDailyBudget(List<BudgetHolder> holders, long estimatedBytes) {
     if (quotas.dailyBytesPerTeam() <= 0) {
       return null;
     }
     Instant since = clock.instant().minus(quotas.budgetWindow());
-    for (String team : teams) {
-      long used = jobs.bytesExportedByTeamSince(team, since);
+    for (BudgetHolder holder : holders) {
+      long used = jobs.bytesExportedByTeamSince(holder.id(), since);
       if (used + estimatedBytes > quotas.dailyBytesPerTeam()) {
         return QuotaDecision.refused(
             ("%s has exported %s in the last %s and this would add %s, over the %s allowed."
                     + " Wait for earlier exports to age out, or narrow this one.")
                 .formatted(
-                    team,
+                    holder.label(),
                     bytes(used),
                     humanise(quotas.budgetWindow()),
                     bytes(estimatedBytes),

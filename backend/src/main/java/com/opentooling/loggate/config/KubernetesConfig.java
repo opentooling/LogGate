@@ -18,8 +18,12 @@ public class KubernetesConfig {
    * Namespace resolution can be switched off, which is what tests and any
    * cluster-less run use. It is not a way to relax authorization: with it off
    * the catalog is permanently unready and every export is refused.
+   *
+   * <p>Open access never reads the Kubernetes API, so in that mode no client is
+   * created at all and the chart grants no permissions for one.
    */
   @Configuration(proxyBeanMethods = false)
+  @org.springframework.context.annotation.Conditional(OnTeamLabelAccess.class)
   @ConditionalOnProperty(
       prefix = "loggate.namespaces",
       name = "enabled",

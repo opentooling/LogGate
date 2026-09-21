@@ -31,9 +31,15 @@ namespaces:
   labelKey: xyz.com/team
   groupTemplate: "ad-{team}-{env}"
   environment: dev
+  # Team-label mode pins every export to this cluster, the only one whose
+  # namespace ownership the Kubernetes API here can vouch for.
+  cluster: k3d-loggate
 
 loki:
   url: http://loki-gateway.observability.svc.cluster.local
+  # Loki holds more than one cluster's logs locally: this one, labelled by
+  # Alloy, and a simulated remote one pushed by deploy/local/seed-remote-cluster.sh.
+  clusterLabel: cluster
 
 storage:
   endpoint: http://minio.observability.svc.cluster.local:9000

@@ -5,8 +5,8 @@ import com.opentooling.loggate.audit.AuditService;
 import com.opentooling.loggate.jobs.ExportJob;
 import com.opentooling.loggate.jobs.ExportJobRepository;
 import com.opentooling.loggate.jobs.NewJob;
-import com.opentooling.loggate.namespaces.NamespaceCatalog;
-import com.opentooling.loggate.namespaces.NamespaceInfo;
+import com.opentooling.loggate.authz.NamespaceAccess;
+import com.opentooling.loggate.quota.BudgetHolder;
 import com.opentooling.loggate.quota.QuotaDecision;
 import com.opentooling.loggate.quota.QuotaGuard;
 import com.opentooling.loggate.security.AuthenticatedUser;
@@ -29,7 +29,7 @@ public class ExportService {
   private final WindowPlanner planner;
   private final QuotaGuard quotas;
   private final ExportJobRepository jobs;
-  private final NamespaceCatalog namespaces;
+  private final NamespaceAccess access;
   private final AuditService audit;
   private final com.opentooling.loggate.observability.ExportMetrics metrics;
 
@@ -38,14 +38,14 @@ public class ExportService {
       WindowPlanner planner,
       QuotaGuard quotas,
       ExportJobRepository jobs,
-      NamespaceCatalog namespaces,
+      NamespaceAccess access,
       AuditService audit,
       com.opentooling.loggate.observability.ExportMetrics metrics) {
     this.estimator = estimator;
     this.planner = planner;
     this.quotas = quotas;
     this.jobs = jobs;
-    this.namespaces = namespaces;
+    this.access = access;
     this.audit = audit;
     this.metrics = metrics;
   }
@@ -80,23 +80,30 @@ public class ExportService {
 
   /** Sizes an already-authorized request and checks it against quota. */
   public Preflight preflight(AuthenticatedUser user, ExportRequest request) {
-    ExportEstimate estimate = estimator.estimate(request);
+    ExportRequest scoped = access.scope(request);
+    ExportEstimate estimate = estimator.estimate(scoped);
     return new Preflight(
-        estimate, quotas.admit(user.subject(), teamsOf(request), request, estimate));
+        estimate,
+        quotas.admit(user.subject(), access.chargedTo(user, scoped), scoped, estimate));
   }
 
   /** Submits an already-authorized request. */
-  public Submission submit(AuthenticatedUser user, ExportRequest request, String sourceIp) {
+  public Submission submit(AuthenticatedUser user, ExportRequest requested, String sourceIp) {
+    // Scoped before anything else reads it, so the query that runs, the size
+    // that is admitted and the job that is stored all describe the same thing.
+    ExportRequest request = access.scope(requested);
     ExportEstimate estimate = estimator.estimate(request);
-    List<String> teams = teamsOf(request);
+    List<BudgetHolder> charged = access.chargedTo(user, request);
+    List<String> teams = charged.stream().map(BudgetHolder::id).toList();
 
-    QuotaDecision decision = quotas.admit(user.subject(), teams, request, estimate);
+    QuotaDecision decision = quotas.admit(user.subject(), charged, request, estimate);
     if (!decision.admitted()) {
       audit.record(
           user.subject(),
           AuditAction.EXPORT_REFUSED,
           Map.of(
               "namespaces", request.namespaces(),
+              "clusters", request.clusters(),
               "estimatedBytes", estimate.estimatedBytes(),
               "teams", teams,
               "reason", decision.reason()),
@@ -126,6 +133,7 @@ public class ExportService {
         Map.of(
             "jobId", id.toString(),
             "namespaces", request.namespaces(),
+            "clusters", request.clusters(),
             "selector", estimate.selector(),
             "estimatedBytes", estimate.estimatedBytes(),
             "byteLimit", decision.byteLimit(),
@@ -134,22 +142,6 @@ public class ExportService {
 
     metrics.submission("accepted", "none");
     return new Submission(jobs.find(id).orElseThrow(), null, estimate);
-  }
-
-  /**
-   * The teams that own the namespaces being exported.
-   *
-   * <p>Resolved once, at submission, and stored on the job. The budget is an
-   * accounting question about the past, and re-deriving it later would let a
-   * relabelled namespace quietly rewrite who spent what.
-   */
-  private List<String> teamsOf(ExportRequest request) {
-    return request.namespaces().stream()
-        .map(namespaces::find)
-        .flatMap(java.util.Optional::stream)
-        .map(NamespaceInfo::team)
-        .distinct()
-        .toList();
   }
 
   /** One of the caller's jobs. */

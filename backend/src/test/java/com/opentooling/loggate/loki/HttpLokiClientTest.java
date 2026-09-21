@@ -37,8 +37,8 @@ class HttpLokiClientTest {
         builder.baseUrl("http://loki.test").build(),
         JsonMapper.builder().build(),
         TestProperties.of(
-            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
-            new LogGateProperties.Loki("http://loki.test", tenantId, 5000, Duration.ofSeconds(30)),
+            new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
+            new LogGateProperties.Loki("http://loki.test", tenantId, 5000, Duration.ofSeconds(30), ""),
             new LogGateProperties.Windows(1024, Duration.ofMinutes(1), Duration.ofHours(1), 5000)),
         slept::add);
   }
@@ -48,6 +48,8 @@ class HttpLokiClientTest {
     server
         .expect(requestTo(Matchers.containsString("/loki/api/v1/index/volume")))
         .andExpect(queryParam("start", "1789862400000000000"))
+        // Without it, a selector matching only on cluster loses the breakdown.
+        .andExpect(queryParam("targetLabels", "namespace"))
         .andRespond(
             withSuccess(
                 """
@@ -288,8 +290,8 @@ class HttpLokiClientTest {
             builder.baseUrl("http://loki.test").build(),
             JsonMapper.builder().build(),
             TestProperties.of(
-                new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev"),
-                new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30)),
+                new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
+                new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), ""),
                 new LogGateProperties.Windows(1024, Duration.ofMinutes(1), Duration.ofHours(1), 5000)),
             duration -> {
               throw new InterruptedException("shutting down");
@@ -350,5 +352,48 @@ class HttpLokiClientTest {
                 MediaType.APPLICATION_JSON));
 
     assertThat(client("").volume("{}", FROM, TO).bytesByNamespace()).containsExactly(java.util.Map.entry("x", 7L));
+  }
+
+  @Test
+  void discoversLabelValuesScopedToASelector() {
+    server
+        .expect(requestTo(Matchers.containsString("/loki/api/v1/label/namespace/values")))
+        .andExpect(requestTo(Matchers.containsString("query=")))
+        .andExpect(queryParam("start", "1789862400000000000"))
+        .andRespond(
+            withSuccess(
+                "{\"status\":\"success\",\"data\":[\"checkout-prod\",\"\",\"platform-dev\"]}",
+                MediaType.APPLICATION_JSON));
+
+    assertThat(client("").labelValues("namespace", "{cluster=\"edge-eu\"}", FROM, TO))
+        .containsExactly("checkout-prod", "platform-dev");
+    server.verify();
+  }
+
+  @Test
+  void discoversLabelValuesAcrossEveryStreamWhenNotScoped() {
+    server
+        .expect(requestTo(Matchers.not(Matchers.containsString("query="))))
+        .andRespond(
+            withSuccess("{\"status\":\"success\",\"data\":[\"edge-eu\"]}", MediaType.APPLICATION_JSON));
+
+    assertThat(client("").labelValues("cluster", "", FROM, TO)).containsExactly("edge-eu");
+  }
+
+  @Test
+  void treatsAMissingSelectorAsEveryStream() {
+    server
+        .expect(requestTo(Matchers.not(Matchers.containsString("query="))))
+        .andRespond(withSuccess("{\"status\":\"success\",\"data\":[]}", MediaType.APPLICATION_JSON));
+
+    assertThat(client("").labelValues("cluster", null, FROM, TO)).isEmpty();
+  }
+
+  @Test
+  void refusesALabelNameThatIsNotOne() {
+    // It goes into the URL path, so it is held to what a label name can be.
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> client("").labelValues("../../admin", "", FROM, TO))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }
