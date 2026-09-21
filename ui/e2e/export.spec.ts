@@ -64,6 +64,45 @@ test.describe("LogGate", () => {
     await expect(job.getByRole("link", { name: "Download .zip" })).toBeVisible();
   });
 
+  test("the theme can be chosen rather than only inherited", async ({ page }) => {
+    await signIn(page, "alice");
+
+    const control = page.getByRole("button", { name: "System theme" });
+    await expect(control).toBeVisible();
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.*/);
+
+    await control.click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await page.getByRole("button", { name: "Light" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+    // The choice belongs to the browser, so it survives a reload.
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
+  });
+
+  test("the allowance is visible before an export is started", async ({ page }) => {
+    await signIn(page, "alice");
+
+    const allowance = page.locator('[data-testid="allowance"]');
+    await allowance.getByText("Your allowance").click();
+    await expect(allowance).toContainText("platform");
+    await expect(allowance).toContainText("exports running");
+    await expect(allowance).toContainText("Finished exports are kept for");
+  });
+
+  test("an estimate carries the quota verdict with it", async ({ page }) => {
+    await signIn(page, "alice");
+
+    await page.getByRole("button", { name: "Estimate first" }).click();
+
+    // Admitted, so the start button names what it is about to start rather
+    // than warning about it.
+    await expect(page.locator('[data-testid="refusal"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Start export \(/ })).toBeVisible();
+  });
+
   test("dave has no namespaces and is told what to do about it", async ({ page }) => {
     await signIn(page, "dave");
 

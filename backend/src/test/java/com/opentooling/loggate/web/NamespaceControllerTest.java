@@ -21,6 +21,7 @@ import com.opentooling.loggate.config.SecurityConfig;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import com.opentooling.loggate.quota.QuotaGuard;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -40,6 +41,7 @@ class NamespaceControllerTest {
   @Autowired private MockMvc mvc;
 
   @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private QuotaGuard quotas;
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private com.opentooling.loggate.export.ExportEstimator estimator;
   @MockitoBean private com.opentooling.loggate.export.ExportService exports;

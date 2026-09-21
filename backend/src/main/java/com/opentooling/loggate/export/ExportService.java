@@ -64,6 +64,27 @@ public class ExportService {
     }
   }
 
+  /**
+   * What submitting this request would cost, and whether it would be allowed.
+   *
+   * <p>The admission decision comes from the same guard that enforces it at
+   * submission, so the answer shown before pressing the button and the answer
+   * given after it cannot drift apart. It is advice rather than enforcement:
+   * concurrency moves, and a refusal here may have cleared by the time the
+   * request is actually made.
+   *
+   * @param estimate what the export would cost
+   * @param decision what the quota guard would say about it now
+   */
+  public record Preflight(ExportEstimate estimate, QuotaDecision decision) {}
+
+  /** Sizes an already-authorized request and checks it against quota. */
+  public Preflight preflight(AuthenticatedUser user, ExportRequest request) {
+    ExportEstimate estimate = estimator.estimate(request);
+    return new Preflight(
+        estimate, quotas.admit(user.subject(), teamsOf(request), request, estimate));
+  }
+
   /** Submits an already-authorized request. */
   public Submission submit(AuthenticatedUser user, ExportRequest request, String sourceIp) {
     ExportEstimate estimate = estimator.estimate(request);

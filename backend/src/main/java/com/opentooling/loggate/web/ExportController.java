@@ -3,7 +3,6 @@ package com.opentooling.loggate.web;
 import com.opentooling.loggate.authz.AccessDecision;
 import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.export.ExportEstimate;
-import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.export.ExportRequest;
 import com.opentooling.loggate.delivery.DeliveryService;
 import com.opentooling.loggate.export.ExportService;
@@ -30,17 +29,12 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class ExportController {
 
   private final AuthorizationGate authorization;
-  private final ExportEstimator estimator;
   private final ExportService exports;
   private final DeliveryService delivery;
 
   public ExportController(
-      AuthorizationGate authorization,
-      ExportEstimator estimator,
-      ExportService exports,
-      DeliveryService delivery) {
+      AuthorizationGate authorization, ExportService exports, DeliveryService delivery) {
     this.authorization = authorization;
-    this.estimator = estimator;
     this.exports = exports;
     this.delivery = delivery;
   }
@@ -50,6 +44,10 @@ public class ExportController {
    *
    * <p>Authorization first, then sizing: there is no reason to ask Loki about
    * namespaces the caller may not read, and doing so would leak their volume.
+   *
+   * <p>The answer carries the quota verdict as well as the size, so the cost
+   * and the permission to pay it arrive together rather than the second one
+   * arriving as a surprise after pressing start.
    */
   @PostMapping("/estimate")
   public ResponseEntity<?> estimate(
@@ -69,8 +67,8 @@ public class ExportController {
     }
 
     try {
-      ExportEstimate estimate = estimator.estimate(request);
-      return ResponseEntity.ok(estimate);
+      ExportService.Preflight preflight = exports.preflight(user, request);
+      return ResponseEntity.ok(EstimateResponse.of(preflight));
     } catch (IllegalArgumentException e) {
       // A request that cannot be planned, e.g. a range needing more windows
       // than the limit allows. That is the caller's to fix, not a server fault.
@@ -206,6 +204,29 @@ public class ExportController {
           org.springframework.http.HttpStatus.FORBIDDEN, "no longer entitled to these namespaces");
     }
     return job;
+  }
+
+  /**
+   * A sizing, with the verdict quota would pass on it.
+   *
+   * @param estimate what the export would cost
+   * @param admission whether it would be allowed, and why not when it would not
+   */
+  public record EstimateResponse(ExportEstimate estimate, Admission admission) {
+
+    static EstimateResponse of(ExportService.Preflight preflight) {
+      var decision = preflight.decision();
+      return new EstimateResponse(
+          preflight.estimate(),
+          new Admission(decision.admitted(), decision.reason(), decision.byteLimit()));
+    }
+
+    /**
+     * @param allowed whether quota would admit this export right now
+     * @param reason why it would not, when it would not
+     * @param byteLimit the cap it would run under, when it would be admitted
+     */
+    public record Admission(boolean allowed, String reason, long byteLimit) {}
   }
 
   /** @param message what went wrong */

@@ -51,7 +51,8 @@ class DeliveryServiceTest {
         4,
         false,
         Instant.parse("2026-09-20T07:00:00Z"),
-        Instant.parse("2026-09-20T07:05:00Z"));
+        Instant.parse("2026-09-20T07:05:00Z"),
+        Instant.parse("2026-09-22T07:05:00Z"));
   }
 
   private static long crc(byte[] content) {

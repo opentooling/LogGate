@@ -366,12 +366,14 @@ public class ExportJobRepository {
       """
       SELECT id, requested_by, state, failure_code, failure_detail, namespaces, selector,
              time_from, time_to, estimated_bytes, byte_limit, windows_total, windows_done,
-             bytes_written, entries_written, cancel_requested, created_at, finished_at
+             bytes_written, entries_written, cancel_requested, created_at, finished_at,
+             expires_at
         FROM export_job
       """;
 
   private ExportJob toJob(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
     Timestamp finished = rs.getTimestamp("finished_at");
+    Timestamp expires = rs.getTimestamp("expires_at");
     return new ExportJob(
         rs.getObject("id", UUID.class),
         rs.getString("requested_by"),
@@ -390,7 +392,8 @@ public class ExportJobRepository {
         rs.getLong("entries_written"),
         rs.getBoolean("cancel_requested"),
         rs.getTimestamp("created_at").toInstant(),
-        finished == null ? null : finished.toInstant());
+        finished == null ? null : finished.toInstant(),
+        expires == null ? null : expires.toInstant());
   }
 
   /** Records an artifact belonging to a job. Replaces any earlier row for the same key. */

@@ -6,7 +6,9 @@ import com.opentooling.loggate.export.ExportRequest;
 import com.opentooling.loggate.jobs.ExportJobRepository;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 
 /**
  * Decides whether an export may run.
@@ -21,12 +23,50 @@ public class QuotaGuard {
 
   private final ExportJobRepository jobs;
   private final LogGateProperties.Quotas quotas;
+  private final Duration retention;
   private final Clock clock;
 
   public QuotaGuard(ExportJobRepository jobs, LogGateProperties properties, Clock clock) {
     this.jobs = jobs;
     this.quotas = properties.quotas();
+    this.retention = properties.execution().retention();
     this.clock = clock;
+  }
+
+  /**
+   * The same limits {@link #admit} enforces, with what is already spent against
+   * them, so they can be shown before a request is made rather than only in a
+   * refusal.
+   *
+   * @param subject the caller, for their own concurrency count
+   * @param teams the teams whose budgets to report
+   */
+  public QuotaReport report(String subject, Collection<String> teams) {
+    Instant since = clock.instant().minus(quotas.budgetWindow());
+    List<QuotaReport.TeamBudget> budgets =
+        teams.stream()
+            .distinct()
+            .sorted()
+            .map(
+                team ->
+                    new QuotaReport.TeamBudget(
+                        team, spentBy(team, since), Math.max(quotas.dailyBytesPerTeam(), 0)))
+            .toList();
+    return new QuotaReport(
+        quotas.maxRange().toSeconds(),
+        quotas.maxEstimatedBytes(),
+        quotas.concurrentPerUser(),
+        jobs.activeJobsFor(subject),
+        quotas.concurrentGlobal(),
+        jobs.activeJobs(),
+        quotas.budgetWindow().toSeconds(),
+        retention.toSeconds(),
+        budgets);
+  }
+
+  /** Nothing is spent when the budget is switched off, and nothing is queried. */
+  private long spentBy(String team, Instant since) {
+    return quotas.dailyBytesPerTeam() <= 0 ? 0 : jobs.bytesExportedByTeamSince(team, since);
   }
 
   /** Checks {@code request} before it becomes a job. */
@@ -81,7 +121,7 @@ public class QuotaGuard {
     if (quotas.dailyBytesPerTeam() <= 0) {
       return null;
     }
-    java.time.Instant since = clock.instant().minus(quotas.budgetWindow());
+    Instant since = clock.instant().minus(quotas.budgetWindow());
     for (String team : teams) {
       long used = jobs.bytesExportedByTeamSince(team, since);
       if (used + estimatedBytes > quotas.dailyBytesPerTeam()) {

@@ -76,9 +76,7 @@ for _ in $(seq 1 60); do
 done
 check "it reaches cancelled" "CANCELLED" "$state"
 
-left="$(kubectl --context "$CONTEXT" exec -n "$OBS_NS" deploy/minio -- \
-  sh -c "ls -1 /export/$BUCKET/jobs/$CANCEL_ID 2>/dev/null | wc -l" 2>/dev/null | tr -d '[:space:]')"
-check "its artifacts were purged" "0" "${left:-0}"
+check "its artifacts were purged" "0" "$(data_parts "$CANCEL_ID")"
 
 # --- quotas ------------------------------------------------------------------
 echo

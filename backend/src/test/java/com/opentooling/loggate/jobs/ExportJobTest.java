@@ -28,6 +28,7 @@ class ExportJobTest {
         0,
         false,
         Instant.EPOCH,
+        null,
         null);
   }
 

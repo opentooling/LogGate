@@ -10,6 +10,7 @@ import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
+import com.opentooling.loggate.quota.QuotaGuard;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -33,6 +34,7 @@ class CsrfCookieTest {
   @Autowired private MockMvc mvc;
 
   @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private QuotaGuard quotas;
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private ExportEstimator estimator;
   @MockitoBean private com.opentooling.loggate.export.ExportService exports;

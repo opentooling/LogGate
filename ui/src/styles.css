@@ -13,8 +13,14 @@
   color-scheme: dark;
 }
 
+/*
+ * Dark above is the default. Light applies when the system asks for it and the
+ * page has not been told otherwise, or when it has been asked for explicitly.
+ * The two selectors carry the same values deliberately: CSS has no way to share
+ * one block between a media query and an attribute.
+ */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg: #f5f6f8;
     --card: #ffffff;
     --raised: #f0f2f5;
@@ -28,6 +34,21 @@
     --bad: #cf222e;
     color-scheme: light;
   }
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --raised: #f0f2f5;
+  --line: #e0e4ea;
+  --text: #161a22;
+  --quiet: #5b6372;
+  --accent: #2f62dd;
+  --accent-soft: #2f62dd18;
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --bad: #cf222e;
+  color-scheme: light;
 }
 
 * {
@@ -484,4 +505,61 @@ code {
 
 a {
   color: var(--accent);
+}
+
+/* --- allowance --------------------------------------------------------- */
+
+.allowance {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.allowance-team {
+  margin: 0.6rem 0;
+}
+
+.allowance-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.allowance p {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+}
+
+.bar-full {
+  background: var(--warn);
+}
+
+.estimate-refused {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
+
+/* --- theme control ----------------------------------------------------- */
+
+.theme {
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+  background: var(--raised);
+  color: var(--text);
+}
+
+/* --- job detail -------------------------------------------------------- */
+
+.job-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress .bar {
+    transition: none;
+  }
 }

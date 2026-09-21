@@ -80,6 +80,22 @@ status() { printf '%s' "$1" | tail -1; }
 body()   { printf '%s' "$1" | sed '$d'; }
 jq_get() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
 
+# Counts the files that actually hold log data under a job's prefix.
+#
+# MinIO stores each object as a directory containing an xl.meta and a version
+# directory holding the data as part.N. Deleting an object removes the version
+# directory but leaves a small xl.meta tombstone behind, so counting objects or
+# directory entries counts things that are no longer there. The data parts are
+# the question worth asking: whether the logs are still on disk.
+#
+# The counting is done on this side rather than in the container, whose image
+# has neither grep nor find.
+data_parts() { # data_parts <job id>
+  kubectl --context "${KUBE_CONTEXT:-k3d-loggate}" exec -n "${OBS_NS:-observability}" \
+    deploy/minio -- sh -c "ls -R /export/${BUCKET:-loggate-exports}/jobs/$1 2>/dev/null" 2>/dev/null \
+    | grep -c '^part\.[0-9]' | tr -d '[:space:]'
+}
+
 summary() {
   printf '\npassed %d, failed %d\n\n' "$pass" "$fail"
   [[ "$fail" -eq 0 ]]

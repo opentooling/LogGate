@@ -2,10 +2,11 @@ package com.opentooling.loggate.config;
 
 import com.opentooling.loggate.authz.AuthorizationGate;
 import com.opentooling.loggate.authz.NamespaceAuthorizer;
-import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.export.ExportService;
+import com.opentooling.loggate.quota.QuotaGuard;
 import com.opentooling.loggate.web.ExportController;
 import com.opentooling.loggate.web.NamespaceController;
+import com.opentooling.loggate.web.QuotaController;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -26,9 +27,13 @@ public class WebConfig {
   @Bean
   ExportController exportController(
       AuthorizationGate authorization,
-      ExportEstimator estimator,
       ExportService exports,
       com.opentooling.loggate.delivery.DeliveryService delivery) {
-    return new ExportController(authorization, estimator, exports, delivery);
+    return new ExportController(authorization, exports, delivery);
+  }
+
+  @Bean
+  QuotaController quotaController(NamespaceAuthorizer authorizer, QuotaGuard quotas) {
+    return new QuotaController(authorizer, quotas);
   }
 }

@@ -37,6 +37,7 @@ export type ExportJob = {
   cancelRequested: boolean;
   createdAt: string;
   finishedAt: string | null;
+  expiresAt: string | null;
   progress: number;
 };
 
@@ -49,6 +50,26 @@ export type Estimate = {
   bytesByNamespace: Record<string, number>;
   windowSeconds: number;
   windowCount: number;
+};
+
+/** What quota would say about an export, alongside what it would cost. */
+export type Admission = { allowed: boolean; reason: string | null; byteLimit: number };
+
+export type Sizing = { estimate: Estimate; admission: Admission };
+
+export type TeamBudget = { team: string; usedBytes: number; limitBytes: number };
+
+/** The limits an export is judged against, and what is already spent. */
+export type Quota = {
+  maxRangeSeconds: number;
+  maxEstimatedBytes: number;
+  concurrentPerUser: number;
+  yourActiveExports: number;
+  concurrentGlobal: number;
+  activeExports: number;
+  budgetWindowSeconds: number;
+  retentionSeconds: number;
+  teams: TeamBudget[];
 };
 
 export type Download = {
@@ -133,8 +154,9 @@ function explain(status: number, body: unknown): string {
 
 export const api = {
   me: () => call<Me>("/api/me"),
+  quota: () => call<Quota>("/api/quota"),
   estimate: (request: ExportRequest) =>
-    call<Estimate>("/api/exports/estimate", {
+    call<Sizing>("/api/exports/estimate", {
       method: "POST",
       body: JSON.stringify(request),
     }),

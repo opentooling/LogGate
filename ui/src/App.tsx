@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type ExportJob, type Me } from "./api";
+import { api, ApiError, type ExportJob, type Me, type Quota } from "./api";
 import { NewExport } from "./NewExport";
 import { Exports } from "./Exports";
+import { applyTheme, nextTheme, rememberTheme, storedTheme, themeLabel, type Theme } from "./theme";
 
 /** States that are still moving, and therefore worth polling. */
 export const ACTIVE_STATES = new Set(["QUEUED", "PLANNED", "RUNNING", "FINALIZING"]);
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
+  const [quota, setQuota] = useState<Quota | null>(null);
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<Theme>(storedTheme);
 
   const refresh = useCallback(async () => {
     try {
       setJobs(await api.list());
+      // Spending moves as jobs run, so the allowance is read with them rather
+      // than once at load, where it would quietly go stale.
+      setQuota(await api.quota());
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -33,6 +39,13 @@ export function App() {
     return () => clearInterval(timer);
   }, [jobs, refresh]);
 
+  function cycleTheme() {
+    const chosen = nextTheme(theme);
+    setTheme(chosen);
+    applyTheme(chosen);
+    rememberTheme(chosen);
+  }
+
   return (
     <div className="page">
       <header className="masthead">
@@ -42,14 +55,19 @@ export function App() {
             Bulk log export, for when a dashboard is the wrong tool.
           </p>
         </div>
-        {me && (
-          <div className="who">
-            <span className="name">{me.name}</span>
-            <a className="link" href="/logout">
-              Sign out
-            </a>
-          </div>
-        )}
+        <div className="who">
+          <button type="button" className="theme" onClick={cycleTheme} aria-live="polite">
+            {themeLabel(theme)}
+          </button>
+          {me && (
+            <>
+              <span className="name">{me.name}</span>
+              <a className="link" href="/logout">
+                Sign out
+              </a>
+            </>
+          )}
+        </div>
       </header>
 
       {error && (
@@ -75,7 +93,9 @@ export function App() {
                 </p>
               </section>
             ) : (
-              me && <NewExport me={me} onSubmitted={refresh} onError={setError} />
+              me && (
+                <NewExport me={me} quota={quota} onSubmitted={refresh} onError={setError} />
+              )
             )}
           </div>
           <Exports jobs={jobs} onChanged={refresh} onError={setError} />

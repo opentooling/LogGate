@@ -1,7 +1,25 @@
 import { useEffect, useState } from "react";
 import { ACTIVE_STATES } from "./App";
 import { api, ApiError, type Download, type ExportJob } from "./api";
-import { advice, explainFailure, formatBytes, formatCount, formatDuration } from "./format";
+import {
+  advice,
+  explainFailure,
+  formatAgo,
+  formatApprox,
+  formatBytes,
+  formatCount,
+  formatDuration,
+  formatRate,
+  remainingSeconds,
+} from "./format";
+
+/**
+ * How many exports are shown before the list is folded.
+ *
+ * <p>Someone who exports regularly accumulates dozens, and a page that opens
+ * on all of them buries the one they just started under a month of history.
+ */
+const SHOWN = 8;
 
 export function Exports({
   jobs,
@@ -12,6 +30,10 @@ export function Exports({
   onChanged: () => void;
   onError: (message: string) => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const folded = !showAll && jobs.length > SHOWN;
+  const shown = folded ? jobs.slice(0, SHOWN) : jobs;
+
   return (
     <section className="card">
       <h2>Your exports</h2>
@@ -20,14 +42,35 @@ export function Exports({
           Nothing yet. Exports you start appear here and keep running if you close this page.
         </p>
       ) : (
-        <ul className="jobs">
-          {jobs.map((job) => (
-            <Job key={job.id} job={job} onChanged={onChanged} onError={onError} />
-          ))}
-        </ul>
+        <>
+          <ul className="jobs">
+            {shown.map((job) => (
+              <Job key={job.id} job={job} onChanged={onChanged} onError={onError} />
+            ))}
+          </ul>
+          {folded && (
+            <div className="actions">
+              <button type="button" className="ghost" onClick={() => setShowAll(true)}>
+                Show {jobs.length - SHOWN} older
+              </button>
+            </div>
+          )}
+        </>
       )}
     </section>
   );
+}
+
+/** Seconds since an ISO timestamp, never negative. */
+function secondsSince(iso: string, now: number = Date.now()): number {
+  return Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+}
+
+/** Seconds until an ISO timestamp, or null when it has passed or is absent. */
+export function secondsUntil(iso: string | null, now: number = Date.now()): number | null {
+  if (!iso) return null;
+  const seconds = Math.round((new Date(iso).getTime() - now) / 1000);
+  return seconds > 0 ? seconds : null;
 }
 
 function Job({
@@ -78,6 +121,8 @@ function Job({
         )}
       </div>
 
+      <p className="quiet job-meta">Submitted {formatAgo(secondsSince(job.createdAt))}</p>
+
       {active && <Progress job={job} />}
 
       {job.state === "FAILED" && (
@@ -97,8 +142,18 @@ function Job({
   );
 }
 
+/**
+ * Progress, and the two questions that follow it: how long, and how fast.
+ *
+ * <p>A bar alone tells someone an export is not finished. Whether to wait for
+ * it or come back tomorrow needs a number.
+ */
 function Progress({ job }: { job: ExportJob }) {
   const percent = Math.round(job.progress * 100);
+  const elapsed = secondsSince(job.createdAt);
+  const left = remainingSeconds(job.windowsDone, job.windowsTotal, elapsed);
+  const rate = formatRate(job.bytesWritten, elapsed);
+
   return (
     <div className="progress-wrap">
       <div
@@ -114,6 +169,8 @@ function Progress({ job }: { job: ExportJob }) {
         {job.windowsDone} of {job.windowsTotal} windows
         {job.entriesWritten > 0 && <> · {formatCount(job.entriesWritten)} entries</>}
         {job.bytesWritten > 0 && <> · {formatBytes(job.bytesWritten)}</>}
+        {rate && <> · {rate}</>}
+        {left !== null && <> · about {formatApprox(left)} left</>}
       </p>
     </div>
   );
@@ -121,6 +178,7 @@ function Progress({ job }: { job: ExportJob }) {
 
 function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | null }) {
   const how = advice(job.bytesWritten);
+  const expiring = secondsUntil(job.expiresAt);
   return (
     <div className="downloads">
       <p className="summary">
@@ -141,6 +199,11 @@ function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | nul
           Download .zip
         </a>
       </div>
+      {expiring !== null && (
+        <p className="quiet job-meta" data-testid="expiry">
+          These files are deleted in {formatApprox(expiring)}.
+        </p>
+      )}
       {downloads && downloads.length > 0 && (
         <details>
           <summary>{downloads.length} files, individually</summary>

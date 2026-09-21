@@ -67,3 +67,61 @@ export function explainFailure(code: string | null, detail: string | null): stri
       return detail ?? "This export stopped unexpectedly.";
   }
 }
+
+/**
+ * How long the rest of an export will take, extrapolated from the part of it
+ * that has already run.
+ *
+ * <p>Elapsed time is measured from submission, so a job that queued behind
+ * others reads slower than it is running. That errs towards over-estimating,
+ * which is the right way to be wrong about a wait.
+ *
+ * @returns seconds remaining, or null when there is not enough to judge by
+ */
+export function remainingSeconds(
+  done: number,
+  total: number,
+  elapsedSeconds: number,
+): number | null {
+  if (done <= 0 || done >= total || elapsedSeconds <= 0) return null;
+  return Math.round((elapsedSeconds / done) * (total - done));
+}
+
+/**
+ * A duration rounded to whatever unit is honest at that scale. Nobody needs
+ * seconds on a two-hour wait, and "0h" is worse than "under a minute".
+ */
+export function formatApprox(seconds: number): string {
+  if (seconds < 60) return "under a minute";
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 86400) {
+    const hours = seconds / 3600;
+    // A trailing ".0" is noise on an approximation: "2 hours", not "2.0 hours".
+    const shown = hours < 10 ? hours.toFixed(1).replace(/\.0$/, "") : String(Math.round(hours));
+    return plural(shown, "hour");
+  }
+  return plural(Math.round(seconds / 86400), "day");
+}
+
+/** "1 day", not "1 days". A unit that disagrees with its number reads as a bug. */
+function plural(count: number | string, unit: string): string {
+  return `${count} ${unit}${Number(count) === 1 ? "" : "s"}`;
+}
+
+/** How long ago something happened, for timestamps nobody wants to read in full. */
+export function formatAgo(seconds: number): string {
+  if (seconds < 60) return "just now";
+  return `${formatApprox(seconds)} ago`;
+}
+
+/** Average rate over the whole life of a job, or null when it is too early. */
+export function formatRate(bytes: number, elapsedSeconds: number): string | null {
+  if (bytes <= 0 || elapsedSeconds < 5) return null;
+  return `${formatBytes(Math.round(bytes / elapsedSeconds))}/s`;
+}
+
+/** A fraction of an allowance, clamped so a bar cannot overflow its track. */
+export function usedFraction(used: number, limit: number): number {
+  if (limit <= 0) return 0;
+  return Math.min(used / limit, 1);
+}

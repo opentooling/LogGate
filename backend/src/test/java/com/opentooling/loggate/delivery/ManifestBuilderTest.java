@@ -44,6 +44,7 @@ class ManifestBuilderTest {
         42,
         false,
         NOW.minus(Duration.ofHours(1)),
+        null,
         null);
   }
 

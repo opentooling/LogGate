@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
-import { api, ApiError, type Estimate, type ExportRequest, type Me } from "./api";
-import { formatBytes, formatDuration } from "./format";
+import { api, ApiError, type Quota, type Sizing, type ExportRequest, type Me } from "./api";
+import { formatApprox, formatBytes, formatDuration, usedFraction } from "./format";
 import { PRESETS, durationSeconds, rangeFor, toLocalInput } from "./ranges";
 
 export function NewExport({
   me,
+  quota,
   onSubmitted,
   onError,
 }: {
   me: Me;
+  quota: Quota | null;
   onSubmitted: () => void;
   onError: (message: string) => void;
 }) {
@@ -18,11 +20,15 @@ export function NewExport({
   const initial = rangeFor(PRESETS[0]!);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [sizing, setSizing] = useState<Sizing | null>(null);
+  const [busy, setBusy] = useState<"estimate" | "submit" | null>(null);
 
   const seconds = useMemo(() => durationSeconds(from, to), [from, to]);
   const rangeValid = seconds > 0;
+  // The longest range is a fixed limit, not a moving one, so it is worth
+  // saying before the request is made rather than after it is refused.
+  const rangeTooLong = quota !== null && seconds > quota.maxRangeSeconds;
+  const ready = busy === null && namespaces.length > 0 && rangeValid && !rangeTooLong;
 
   function request(): ExportRequest {
     return {
@@ -38,24 +44,24 @@ export function NewExport({
     const range = rangeFor(PRESETS[index]!);
     setFrom(range.from);
     setTo(range.to);
-    setEstimate(null);
+    setSizing(null);
   }
 
   async function run(action: "estimate" | "submit") {
-    setBusy(true);
+    setBusy(action);
     onError("");
     try {
       if (action === "estimate") {
-        setEstimate(await api.estimate(request()));
+        setSizing(await api.estimate(request()));
       } else {
         await api.submit(request());
-        setEstimate(null);
+        setSizing(null);
         onSubmitted();
       }
     } catch (e) {
       onError(e instanceof ApiError ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -73,7 +79,7 @@ export function NewExport({
                 value={namespace.name}
                 checked={namespaces.includes(namespace.name)}
                 onChange={(e) => {
-                  setEstimate(null);
+                  setSizing(null);
                   setNamespaces((current) =>
                     e.target.checked
                       ? [...current, namespace.name]
@@ -116,7 +122,7 @@ export function NewExport({
               max={toLocalInput(new Date())}
               onChange={(e) => {
                 setFrom(e.target.value);
-                setEstimate(null);
+                setSizing(null);
               }}
             />
           </label>
@@ -128,12 +134,18 @@ export function NewExport({
               max={toLocalInput(new Date())}
               onChange={(e) => {
                 setTo(e.target.value);
-                setEstimate(null);
+                setSizing(null);
               }}
             />
           </label>
         </div>
         {!rangeValid && <p className="field-error">The range has to end after it starts.</p>}
+        {rangeTooLong && (
+          <p className="field-error">
+            One export may cover {formatDuration(quota!.maxRangeSeconds)} at most. Shorten this
+            range, or run it in two.
+          </p>
+        )}
       </fieldset>
 
       <fieldset>
@@ -146,7 +158,7 @@ export function NewExport({
               placeholder="api-*"
               onChange={(e) => {
                 setPodPattern(e.target.value);
-                setEstimate(null);
+                setSizing(null);
               }}
             />
             <small>A glob, not a regex. Empty means every pod.</small>
@@ -158,7 +170,7 @@ export function NewExport({
               placeholder="timeout"
               onChange={(e) => {
                 setLineFilter(e.target.value);
-                setEstimate(null);
+                setSizing(null);
               }}
             />
             <small>Plain text, matched literally.</small>
@@ -166,27 +178,29 @@ export function NewExport({
         </div>
       </fieldset>
 
-      {estimate && <EstimateCard estimate={estimate} />}
+      {sizing && <EstimateCard sizing={sizing} />}
 
       <div className="actions">
-        <button
-          type="button"
-          onClick={() => run("estimate")}
-          disabled={busy || !namespaces.length || !rangeValid}
-        >
-          Estimate first
+        <button type="button" onClick={() => run("estimate")} disabled={!ready}>
+          {busy === "estimate" ? "Estimating…" : "Estimate first"}
         </button>
-        <button
-          type="button"
-          className="primary"
-          onClick={() => run("submit")}
-          disabled={busy || !namespaces.length || !rangeValid}
-        >
-          Start export
+        <button type="button" className="primary" onClick={() => run("submit")} disabled={!ready}>
+          {busy === "submit"
+            ? "Starting…"
+            : sizing
+              ? `Start export (${formatBytes(downloadBytes(sizing))})`
+              : "Start export"}
         </button>
       </div>
+
+      {quota && <Allowance quota={quota} />}
     </section>
   );
+}
+
+/** What the export will actually hand back, as opposed to what Loki reads. */
+function downloadBytes(sizing: Sizing): number {
+  return sizing.estimate.filteredBytes ?? sizing.estimate.estimatedBytes;
 }
 
 /**
@@ -196,16 +210,17 @@ export function NewExport({
  * an export is 40 GB rather than after waiting for it. It is given the weight
  * that deserves.
  */
-function EstimateCard({ estimate }: { estimate: Estimate }) {
+function EstimateCard({ sizing }: { sizing: Sizing }) {
+  const { estimate, admission } = sizing;
   const namespaces = Object.entries(estimate.bytesByNamespace).sort((a, b) => b[1] - a[1]);
   const filtered = estimate.filteredBytes;
   const hasFilter = estimate.selector.includes("|=");
   // What you download is what survives the filter; what Loki reads is the
   // whole stream either way, and that is what the quota is judged on.
-  const download = filtered ?? estimate.estimatedBytes;
+  const download = downloadBytes(sizing);
 
   return (
-    <div className="estimate" aria-live="polite">
+    <div className={`estimate${admission.allowed ? "" : " estimate-refused"}`} aria-live="polite">
       <div className="estimate-headline">
         <strong>{formatBytes(download)}</strong>
         <span className="quiet">
@@ -218,6 +233,12 @@ function EstimateCard({ estimate }: { estimate: Estimate }) {
           {formatBytes(estimate.estimatedBytes)} is read from Loki before your line filter is
           applied{filtered === null && ", and there was too little data to judge how much the filter keeps"}.
           Quota is judged on what is read.
+        </p>
+      )}
+
+      {!admission.allowed && (
+        <p className="field-error" data-testid="refusal">
+          This would be refused: {admission.reason}
         </p>
       )}
 
@@ -241,8 +262,64 @@ function EstimateCard({ estimate }: { estimate: Estimate }) {
         <p className="quiet">
           Generated from your selections. Windows of {formatDuration(estimate.windowSeconds)} are
           extracted in parallel.
+          {admission.allowed && admission.byteLimit > 0 && (
+            <> The job is capped at {formatBytes(admission.byteLimit)} and stops there.</>
+          )}
         </p>
       </details>
     </div>
+  );
+}
+
+/**
+ * What is left of the limits, while there is still time to spend it well.
+ *
+ * <p>A quota only discovered by being refused teaches nothing. Shown here, it
+ * is something to plan a range around.
+ */
+function Allowance({ quota }: { quota: Quota }) {
+  const budgeted = quota.teams.filter((team) => team.limitBytes > 0);
+  return (
+    <details className="allowance" data-testid="allowance">
+      <summary>Your allowance</summary>
+      {budgeted.map((team) => {
+        const fraction = usedFraction(team.usedBytes, team.limitBytes);
+        return (
+          <div key={team.team} className="allowance-team">
+            <div className="allowance-label">
+              <span>{team.team}</span>
+              <span className="quiet">
+                {formatBytes(team.usedBytes)} of {formatBytes(team.limitBytes)}
+              </span>
+            </div>
+            <div
+              className="progress"
+              role="progressbar"
+              aria-label={`${team.team} budget used`}
+              aria-valuenow={Math.round(fraction * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className={`bar${fraction > 0.9 ? " bar-full" : ""}`}
+                style={{ width: `${fraction * 100}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      <p className="quiet">
+        {budgeted.length > 0 && (
+          <>
+            Spending ages out over {formatApprox(quota.budgetWindowSeconds)}.{" "}
+          </>
+        )}
+        One export may cover {formatDuration(quota.maxRangeSeconds)} and{" "}
+        {formatBytes(quota.maxEstimatedBytes)}. You have {quota.yourActiveExports} of{" "}
+        {quota.concurrentPerUser} exports running, and the platform {quota.activeExports} of{" "}
+        {quota.concurrentGlobal}. Finished exports are kept for{" "}
+        {formatApprox(quota.retentionSeconds)}.
+      </p>
+    </details>
   );
 }

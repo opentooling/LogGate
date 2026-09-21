@@ -3,6 +3,8 @@ package com.opentooling.loggate.quota;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.opentooling.loggate.config.LogGateProperties;
@@ -204,5 +206,47 @@ class QuotaGuardTest {
             .admit("alice", List.of("platform"), request(Duration.ofHours(12)), estimate(GB));
 
     assertThat(decision.reason()).contains("12 hours").contains("6 hours");
+  }
+
+  @Test
+  void reportsTheLimitsAndWhatIsSpentAgainstThem() {
+    when(jobs.activeJobsFor("alice")).thenReturn(1);
+    when(jobs.activeJobs()).thenReturn(4);
+    when(jobs.bytesExportedByTeamSince("platform", Instant.parse("2026-09-19T12:00:00Z")))
+        .thenReturn(120 * GB);
+    when(jobs.bytesExportedByTeamSince("payments", Instant.parse("2026-09-19T12:00:00Z")))
+        .thenReturn(0L);
+
+    QuotaReport report = guard().report("alice", List.of("payments", "platform", "platform"));
+
+    assertThat(report.maxRangeSeconds()).isEqualTo(Duration.ofDays(2).toSeconds());
+    assertThat(report.maxEstimatedBytes()).isEqualTo(50 * GB);
+    assertThat(report.concurrentPerUser()).isEqualTo(2);
+    assertThat(report.yourActiveExports()).isEqualTo(1);
+    assertThat(report.concurrentGlobal()).isEqualTo(10);
+    assertThat(report.activeExports()).isEqualTo(4);
+    assertThat(report.budgetWindowSeconds()).isEqualTo(Duration.ofHours(24).toSeconds());
+    assertThat(report.retentionSeconds()).isEqualTo(Duration.ofHours(48).toSeconds());
+    // Deduplicated and ordered, so the same team named by two namespaces is
+    // one line rather than two.
+    assertThat(report.teams())
+        .containsExactly(
+            new QuotaReport.TeamBudget("payments", 0, 500 * GB),
+            new QuotaReport.TeamBudget("platform", 120 * GB, 500 * GB));
+  }
+
+  @Test
+  void reportsNoBudgetWhenTheBudgetIsSwitchedOff() {
+    LogGateProperties.Quotas off =
+        new LogGateProperties.Quotas(
+            Duration.ofDays(2), 50 * GB, 2, 10, 1.25, 64L * 1024 * 1024, 0, Duration.ofHours(24));
+
+    QuotaReport report = guard(off).report("alice", List.of("platform"));
+
+    assertThat(report.teams())
+        .containsExactly(new QuotaReport.TeamBudget("platform", 0, 0));
+    // A budget that is off is not a budget of zero that everyone has spent, so
+    // the repository is never asked.
+    verify(jobs, never()).bytesExportedByTeamSince(any(), any());
   }
 }

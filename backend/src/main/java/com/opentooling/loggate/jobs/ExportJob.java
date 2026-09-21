@@ -25,6 +25,7 @@ import java.util.UUID;
  * @param cancelRequested whether a cancellation has been asked for
  * @param createdAt when it was submitted
  * @param finishedAt when it stopped, if it has
+ * @param expiresAt when its files are deleted, once it is ready
  */
 public record ExportJob(
     UUID id,
@@ -44,7 +45,8 @@ public record ExportJob(
     long entriesWritten,
     boolean cancelRequested,
     Instant createdAt,
-    Instant finishedAt) {
+    Instant finishedAt,
+    Instant expiresAt) {
 
   /**
    * Progress as a fraction, for a progress bar that means something.

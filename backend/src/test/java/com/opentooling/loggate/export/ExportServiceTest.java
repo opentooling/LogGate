@@ -122,6 +122,32 @@ class ExportServiceTest {
   }
 
   @Test
+  void preflightSizesAndJudgesWithoutQueueingAnything() {
+    loki.volume("platform-dev", 2048 * MB);
+
+    var preflight = service().preflight(alice(), request(Duration.ofHours(8)));
+
+    assertThat(preflight.estimate().estimatedBytes()).isEqualTo(2048 * MB);
+    assertThat(preflight.decision().admitted()).isTrue();
+    assertThat(preflight.decision().byteLimit()).isGreaterThan(2048 * MB);
+    // Asking what something would cost must not cost anything.
+    assertThat(jobs.activeJobs()).isZero();
+    verify(audit, never()).record(any(), any(), any(), any());
+  }
+
+  @Test
+  void preflightGivesTheSameRefusalSubmissionWould() {
+    loki.volume("platform-dev", 500L * 1024 * MB);
+
+    var request = request(Duration.ofHours(8));
+    var preflight = service().preflight(alice(), request);
+    var submission = service().submit(alice(), request, "10.0.0.2");
+
+    assertThat(preflight.decision().admitted()).isFalse();
+    assertThat(preflight.decision().reason()).isEqualTo(submission.refusal());
+  }
+
+  @Test
   void showsTheCallerOnlyTheirOwnJobs() {
     loki.volume("platform-dev", 10 * MB);
     var mine = service().submit(alice(), request(Duration.ofHours(1)), "10.0.0.1");

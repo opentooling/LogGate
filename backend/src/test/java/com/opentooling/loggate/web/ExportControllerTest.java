@@ -17,8 +17,9 @@ import com.opentooling.loggate.authz.NamespaceAuthorizer;
 import com.opentooling.loggate.config.SecurityConfig;
 import com.opentooling.loggate.config.WebConfig;
 import com.opentooling.loggate.export.ExportEstimate;
-import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.export.ExportService;
+import com.opentooling.loggate.quota.QuotaDecision;
+import com.opentooling.loggate.quota.QuotaGuard;
 import com.opentooling.loggate.jobs.ExportJob;
 import com.opentooling.loggate.jobs.JobState;
 import java.time.Instant;
@@ -48,8 +49,8 @@ class ExportControllerTest {
   @Autowired private MockMvc mvc;
 
   @MockitoBean private AuthorizationGate authorization;
-  @MockitoBean private ExportEstimator estimator;
   @MockitoBean private NamespaceAuthorizer authorizer;
+  @MockitoBean private QuotaGuard quotas;
   @MockitoBean private ExportService exports;
   @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
 
@@ -68,20 +69,25 @@ class ExportControllerTest {
         .thenReturn(new AccessDecision(Set.of("platform-dev"), Map.of()));
   }
 
+  private static ExportEstimate estimateOf(long bytes) {
+    return new ExportEstimate(
+        "{namespace=\"platform-dev\"}",
+        Instant.parse("2026-09-20T00:00:00Z"),
+        Instant.parse("2026-09-21T00:00:00Z"),
+        bytes,
+        null,
+        Map.of("platform-dev", bytes),
+        900,
+        96);
+  }
+
   @Test
   void returnsTheEstimateForAnAuthorizedRequest() throws Exception {
     allowEverything(authorization);
-    when(estimator.estimate(any()))
+    when(exports.preflight(any(), any()))
         .thenReturn(
-            new ExportEstimate(
-                "{namespace=\"platform-dev\"}",
-                Instant.parse("2026-09-20T00:00:00Z"),
-                Instant.parse("2026-09-21T00:00:00Z"),
-                44_040_192L,
-                null,
-                Map.of("platform-dev", 44_040_192L),
-                900,
-                96));
+            new ExportService.Preflight(
+                estimateOf(44_040_192L), new QuotaDecision(true, null, 55_050_240L)));
 
     mvc.perform(
             post("/api/exports/estimate")
@@ -90,9 +96,35 @@ class ExportControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(VALID_BODY))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.estimatedBytes").value(44040192L))
-        .andExpect(jsonPath("$.windowCount").value(96))
-        .andExpect(jsonPath("$.bytesByNamespace['platform-dev']").value(44040192L));
+        .andExpect(jsonPath("$.estimate.estimatedBytes").value(44040192L))
+        .andExpect(jsonPath("$.estimate.windowCount").value(96))
+        .andExpect(jsonPath("$.estimate.bytesByNamespace['platform-dev']").value(44040192L))
+        .andExpect(jsonPath("$.admission.allowed").value(true))
+        .andExpect(jsonPath("$.admission.byteLimit").value(55050240L));
+  }
+
+  @Test
+  void saysWhyAnEstimatedExportWouldBeRefusedRatherThanWaitingForTheSubmission() throws Exception {
+    // The verdict travels with the sizing, so the cost and the permission to
+    // pay it arrive together.
+    allowEverything(authorization);
+    when(exports.preflight(any(), any()))
+        .thenReturn(
+            new ExportService.Preflight(
+                estimateOf(80_000_000_000L),
+                new QuotaDecision(false, "the export is estimated at 74.5 GB, over the 50.0 GB allowed", 0)));
+
+    mvc.perform(
+            post("/api/exports/estimate")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.admission.allowed").value(false))
+        .andExpect(
+            jsonPath("$.admission.reason")
+                .value("the export is estimated at 74.5 GB, over the 50.0 GB allowed"));
   }
 
   @Test
@@ -111,7 +143,7 @@ class ExportControllerTest {
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.denied['platform-dev']").value("NOT_A_GROUP_MEMBER"));
 
-    verify(estimator, never()).estimate(any());
+    verify(exports, never()).preflight(any(), any());
   }
 
   @Test
@@ -146,7 +178,7 @@ class ExportControllerTest {
   @Test
   void reportsAPlanItCannotBuildAsTheCallersProblem() throws Exception {
     allowEverything(authorization);
-    when(estimator.estimate(any()))
+    when(exports.preflight(any(), any()))
         .thenThrow(new IllegalArgumentException("export would need 90000 windows"));
 
     mvc.perform(
@@ -178,6 +210,7 @@ class ExportControllerTest {
         5,
         false,
         Instant.parse("2026-09-20T09:00:00Z"),
+        null,
         null);
   }
 

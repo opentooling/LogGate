@@ -70,6 +70,9 @@ loggate:
     secret-key: ${S3_SECRET_KEY:}
     path-style: ${S3_PATH_STYLE:true}
     public-endpoint: ${S3_PUBLIC_ENDPOINT:}
+    # How long a download link stays valid. Long enough to start a large
+    # download, short enough that a link pasted into a chat stops working.
+    presigned-url-lifetime: ${S3_PRESIGNED_URL_LIFETIME:30m}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}

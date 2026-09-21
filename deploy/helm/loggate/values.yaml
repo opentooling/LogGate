@@ -173,6 +173,8 @@ storage:
   existingSecret: ""
   # MinIO addresses buckets by path rather than by subdomain.
   pathStyle: true
+  # -- How long a presigned download link stays valid.
+  presignedUrlLifetime: 30m
 
 # -- Workers and quotas.
 execution:
