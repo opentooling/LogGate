@@ -55,11 +55,20 @@ public class S3ObjectStore implements ObjectStore {
       writer.writeTo(out);
       out.close();
       return out.totalBytes();
-    } catch (IOException | RuntimeException e) {
-      // Leave nothing half-written: a retried window must start from nothing.
+    } catch (IOException e) {
+      // The store itself failed. Leave nothing half-written: a retried window
+      // must start from nothing.
       out.abort();
       throw new UncheckedIOException(
           new IOException("could not write " + key + " to " + bucket, e));
+    } catch (RuntimeException e) {
+      // The writer stopped: a cancellation, a quota, or a bug in extraction.
+      // Abandon the upload, but let the original reason through unchanged.
+      // Wrapping it made a quota failure look like a storage failure, which
+      // sends the user to the platform team instead of telling them to narrow
+      // their export - and made a mid-window cancellation look like an outage.
+      out.abort();
+      throw e;
     }
   }
 

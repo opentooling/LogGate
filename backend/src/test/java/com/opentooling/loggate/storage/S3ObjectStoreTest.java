@@ -196,6 +196,31 @@ class S3ObjectStoreTest {
   }
 
   @Test
+  void letsTheWritersOwnFailureThroughUnchanged() {
+    // The store must not disguise why the writer stopped. Wrapping it made a
+    // quota failure look like a storage failure, which sends the user to the
+    // platform team instead of telling them to narrow their export.
+    String key = "test/" + UUID.randomUUID() + "/writer-stopped.bin";
+    byte[] chunk = new byte[1024 * 1024];
+
+    assertThatThrownBy(
+            () ->
+                store.put(
+                    key,
+                    out -> {
+                      for (int i = 0; i < 6; i++) {
+                        out.write(chunk);
+                      }
+                      throw new IllegalStateException("the writer decided to stop");
+                    }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("the writer decided to stop");
+
+    // And it still leaves nothing half-written behind.
+    assertThatThrownBy(() -> read(key)).isInstanceOf(NoSuchKeyException.class);
+  }
+
+  @Test
   void deletesEverythingUnderAPrefix() {
     String prefix = "jobs/" + UUID.randomUUID() + "/";
     for (int i = 0; i < 3; i++) {

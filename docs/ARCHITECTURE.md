@@ -318,7 +318,7 @@ later would let a relabelled namespace quietly rewrite who spent what.
 | Loki 429 / overload | Backoff and concurrency reduction; the job slows, it does not fail |
 | Object store outage | Window fails and retries within budget; job fails cleanly after N attempts |
 | User cancels | Workers observe the flag between pages; parts purged |
-| Quota exceeded | Killed at the byte cap mid-flight; partial artifacts purged |
+| Quota exceeded | Killed at the byte cap mid-flight; partial artifacts purged, and reported as a quota failure rather than a storage one even though it stops mid-upload |
 | Very recent time range | Logs still in ingesters may be absent — reported in the manifest, never silently missing |
 | Group membership revoked mid-job | Download re-check refuses; artifacts expire normally |
 

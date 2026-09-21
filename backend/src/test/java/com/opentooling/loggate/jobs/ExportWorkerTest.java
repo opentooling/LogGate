@@ -194,6 +194,25 @@ class ExportWorkerTest {
   }
 
   @Test
+  void reportsAByteLimitAsAQuotaFailureEvenThoughItStoppedMidUpload() {
+    // The limit is hit while the part is being written, so the exception
+    // travels out through the object store. It must still arrive as a quota
+    // failure: telling the user their export is a storage problem sends them
+    // to the wrong place entirely.
+    UUID id = createJob(50);
+    var loki = new FakeLokiClient();
+    for (int i = 0; i < 40; i++) {
+      loki.entry(FROM_NANOS + i, "api-0", "a log line that is not especially short, number " + i);
+    }
+
+    worker(loki, store, 3, 1).runOnce();
+
+    ExportJob job = jobs.find(id).orElseThrow();
+    assertThat(job.failureCode()).isEqualTo("BYTE_LIMIT_EXCEEDED");
+    assertThat(job.failureCode()).isNotEqualTo("STORAGE_FAILED");
+  }
+
+  @Test
   void describesAFailureThatCarriesNoMessage() {
     UUID id = createJob(Long.MAX_VALUE);
     var failing = new InMemoryObjectStore().failWith(new IllegalStateException());

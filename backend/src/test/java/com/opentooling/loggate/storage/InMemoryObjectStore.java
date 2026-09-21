@@ -23,6 +23,14 @@ public class InMemoryObjectStore implements ObjectStore {
     return Map.copyOf(objects);
   }
 
+  /**
+   * Mirrors {@code S3ObjectStore}: the store's own failures surface as
+   * UncheckedIOException, while whatever the writer threw passes through
+   * unchanged.
+   *
+   * <p>This double used to swallow the distinction, which let a bug where a
+   * quota failure was reported as a storage failure pass every test.
+   */
   @Override
   public long put(String key, ContentWriter writer) {
     if (failure != null) {
