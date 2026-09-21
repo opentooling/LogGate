@@ -8,6 +8,7 @@ import {
   formatCount,
   formatDuration,
   formatRate,
+  formatRemaining,
   remainingSeconds,
   usedFraction,
 } from "../format";
@@ -137,5 +138,12 @@ describe("usedFraction", () => {
 
   it("treats a budget that is switched off as nothing spent", () => {
     expect(usedFraction(300, 0)).toBe(0);
+  });
+});
+
+describe("formatRemaining", () => {
+  it("never says 'about under a minute'", () => {
+    expect(formatRemaining(20)).toBe("under a minute left");
+    expect(formatRemaining(600)).toBe("about 10 min left");
   });
 });

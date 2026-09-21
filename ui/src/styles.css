@@ -177,6 +177,12 @@ label {
   min-width: 0;
 }
 
+/* A date and a time do not fit in half of the form's column; side by side they
+   were cut off mid-minute. */
+.row-stacked label {
+  flex-basis: 100%;
+}
+
 input[type="text"],
 input[type="datetime-local"],
 input:not([type]) {

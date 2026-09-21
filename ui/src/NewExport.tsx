@@ -113,7 +113,7 @@ export function NewExport({
             </button>
           ))}
         </div>
-        <div className="row">
+        <div className="row row-stacked">
           <label>
             From
             <input

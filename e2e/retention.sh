@@ -49,7 +49,7 @@ done
 check "it reaches ready" "READY" "$state"
 [[ "$state" != "READY" ]] && { rm -f "$JAR"; summary; exit 1; }
 
-check_at_least "its log data is in the bucket" 1 "$(data_parts "$JOB")"
+check_at_least "its files are in the bucket" 1 "$(stored_objects "$JOB")"
 check "it is given an expiry when it is published" "yes" \
   "$(body "$(api "$JAR" GET "/api/exports/$JOB")" | jq_get '"yes" if d["expiresAt"] else "no"')"
 
@@ -122,7 +122,7 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 check "the export is marked expired" "EXPIRED" "$swept"
-check "and its log data is gone from the bucket" "0" "$(data_parts "$JOB")"
+check "and its files are gone from the bucket" "0" "$(stored_objects "$JOB")"
 
 check "the API reports it as expired" "EXPIRED" \
   "$(body "$(api "$JAR" GET "/api/exports/$JOB")" | jq_get 'd["state"]')"

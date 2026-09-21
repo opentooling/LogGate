@@ -76,7 +76,7 @@ for _ in $(seq 1 60); do
 done
 check "it reaches cancelled" "CANCELLED" "$state"
 
-check "its artifacts were purged" "0" "$(data_parts "$CANCEL_ID")"
+check "its artifacts were purged" "0" "$(stored_objects "$CANCEL_ID")"
 
 # --- quotas ------------------------------------------------------------------
 echo

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ACTIVE_STATES } from "./App";
 import { api, ApiError, type Download, type ExportJob } from "./api";
+import { serverNow } from "./clock";
 import {
   advice,
   explainFailure,
@@ -10,6 +11,7 @@ import {
   formatCount,
   formatDuration,
   formatRate,
+  formatRemaining,
   remainingSeconds,
 } from "./format";
 
@@ -62,12 +64,12 @@ export function Exports({
 }
 
 /** Seconds since an ISO timestamp, never negative. */
-function secondsSince(iso: string, now: number = Date.now()): number {
+function secondsSince(iso: string, now: number = serverNow()): number {
   return Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
 }
 
 /** Seconds until an ISO timestamp, or null when it has passed or is absent. */
-export function secondsUntil(iso: string | null, now: number = Date.now()): number | null {
+export function secondsUntil(iso: string | null, now: number = serverNow()): number | null {
   if (!iso) return null;
   const seconds = Math.round((new Date(iso).getTime() - now) / 1000);
   return seconds > 0 ? seconds : null;
@@ -170,7 +172,7 @@ function Progress({ job }: { job: ExportJob }) {
         {job.entriesWritten > 0 && <> · {formatCount(job.entriesWritten)} entries</>}
         {job.bytesWritten > 0 && <> · {formatBytes(job.bytesWritten)}</>}
         {rate && <> · {rate}</>}
-        {left !== null && <> · about {formatApprox(left)} left</>}
+        {left !== null && <> · {formatRemaining(left)}</>}
       </p>
     </div>
   );
@@ -179,6 +181,23 @@ function Progress({ job }: { job: ExportJob }) {
 function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | null }) {
   const how = advice(job.bytesWritten);
   const expiring = secondsUntil(job.expiresAt);
+
+  // An export that found nothing is a finding, not a file. Offering to download
+  // an empty archive would hide the one thing worth knowing.
+  if (job.entriesWritten === 0) {
+    return (
+      <div className="downloads" data-testid="empty">
+        <p className="summary">No log lines matched</p>
+        <p className="quiet">
+          Nothing was logged in these namespaces over this range
+          {job.selector.includes("pod=~") && ", by pods matching your pattern"}
+          {job.selector.includes("|=") && ", containing your text"}. Check the time range and
+          filters, then run it again.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="downloads">
       <p className="summary">

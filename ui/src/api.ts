@@ -1,5 +1,7 @@
 /** Types mirroring the API, and the fetch wrapper every call goes through. */
 
+import { observeServerDate } from "./clock";
+
 export type Namespace = { name: string; team: string; owningGroup: string };
 
 export type Me = {
@@ -120,6 +122,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers,
     },
   });
+  observeServerDate(response.headers.get("Date"));
 
   if (response.status === 401) {
     // The session has gone; start the login again rather than showing an error

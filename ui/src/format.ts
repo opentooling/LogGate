@@ -108,6 +108,11 @@ function plural(count: number | string, unit: string): string {
   return `${count} ${unit}${Number(count) === 1 ? "" : "s"}`;
 }
 
+/** Time left on something, phrased so "about" is never put in front of "under". */
+export function formatRemaining(seconds: number): string {
+  return seconds < 60 ? "under a minute left" : `about ${formatApprox(seconds)} left`;
+}
+
 /** How long ago something happened, for timestamps nobody wants to read in full. */
 export function formatAgo(seconds: number): string {
   if (seconds < 60) return "just now";

@@ -9,6 +9,15 @@ needs *two days of logs for a set of pods*, tens of gigabytes, as files they can
 download — and that must happen without anyone handing out `logcli`, without
 melting the Loki read path, and with a record of who took what.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/00-overview-dark.png">
+  <img alt="LogGate with an export running across two namespaces and a finished one ready to download" src="docs/images/00-overview-light.png">
+</picture>
+
+**See it before you run it:** the [user guide](docs/USER-GUIDE.md) walks through
+signing in, sizing an export, the quota, watching it run and downloading it, with
+screenshots of each step.
+
 ## What it does
 
 - **Authenticates** against Keycloak (OIDC).
@@ -21,7 +30,7 @@ melting the Loki read path, and with a record of who took what.
   bounded parallelism, and streamed to object storage as compressed parts.
 - **Delivers** presigned URLs plus a manifest for bulk downloads, or a proxied
   ZIP64 stream for a browser.
-- **Audits** every submission, state change and download.
+- **Audits** every submission, refusal, cancellation and denied access.
 
 ## Design
 
@@ -114,6 +123,19 @@ returns once Loki can actually serve them.
 
 The end-to-end job runs only once the build and chart jobs pass, and on failure
 keeps the pod logs, cluster events and Playwright traces as a run artifact.
+
+### Screenshots
+
+The images in `docs/images` are captured from a running deployment rather than
+drawn, so they can be regenerated whenever the UI changes:
+
+```bash
+cd ui && npm run screenshots
+```
+
+It needs the local stack deployed and seeded, and refuses to run if the
+cluster's clock and this machine's disagree, which would otherwise produce
+empty exports and nonsense durations while still passing.
 
 ### Demo users
 

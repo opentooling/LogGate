@@ -98,20 +98,33 @@ status() { printf '%s' "$1" | tail -1; }
 body()   { printf '%s' "$1" | sed '$d'; }
 jq_get() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
 
-# Counts the files that actually hold log data under a job's prefix.
+# Counts the objects the storage holds under a job's prefix.
 #
-# MinIO stores each object as a directory containing an xl.meta and a version
-# directory holding the data as part.N. Deleting an object removes the version
-# directory but leaves a small xl.meta tombstone behind, so counting objects or
-# directory entries counts things that are no longer there. The data parts are
-# the question worth asking: whether the logs are still on disk.
+# Asked through the S3 API rather than read off MinIO's disk. Its on-disk
+# format misleads twice over: a deleted object leaves an xl.meta tombstone
+# behind, and a small object has no data file of its own at all, being stored
+# inline in its xl.meta. A listing is the storage's own answer to the only
+# question that matters here, whether the object is still there.
 #
-# The counting is done on this side rather than in the container, whose image
-# has neither grep nor find.
-data_parts() { # data_parts <job id>
-  kubectl --context "${KUBE_CONTEXT:-k3d-loggate}" exec -n "${OBS_NS:-observability}" \
-    deploy/minio -- sh -c "ls -R /export/${BUCKET:-loggate-exports}/jobs/$1 2>/dev/null" 2>/dev/null \
-    | grep -c '^part\.[0-9]' | tr -d '[:space:]'
+# The keys are read from the chart's secret, the same ones the application
+# signs with, and are never printed.
+stored_objects() { # stored_objects <job id>
+  local context="${KUBE_CONTEXT:-k3d-loggate}" ns="${APP_NS:-loggate}"
+  local key secret
+  key="$(kubectl --context "$context" get secret -n "$ns" loggate-secrets \
+    -o jsonpath='{.data.storage-access-key}' | base64 --decode)"
+  secret="$(kubectl --context "$context" get secret -n "$ns" loggate-secrets \
+    -o jsonpath='{.data.storage-secret-key}' | base64 --decode)"
+  local listing
+  listing="$(curl -s --aws-sigv4 "aws:amz:${S3_REGION:-us-east-1}:s3" --user "$key:$secret" \
+    "${S3_URL:-http://s3.localtest.me:8088}/${BUCKET:-loggate-exports}?list-type=2&prefix=jobs/$1/")"
+  # A refused or failed listing has no keys in it either, and must not read as
+  # "nothing is stored" to a check that expects exactly that.
+  if [[ "$listing" != *"<ListBucketResult"* ]]; then
+    printf 'listing-failed'
+    return
+  fi
+  printf '%s' "$listing" | grep -o '<Key>' | wc -l | tr -d '[:space:]'
 }
 
 summary() {
