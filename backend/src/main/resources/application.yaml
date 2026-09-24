@@ -80,6 +80,8 @@ loggate:
     # stores do not accept the trailing checksums the SDK adds by default.
     checksums: ${S3_CHECKSUMS:WHEN_REQUIRED}
     ca-certificate: ${S3_CA_CERTIFICATE:}
+  oidc:
+    ca-certificate: ${OIDC_CA_CERTIFICATE:}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}

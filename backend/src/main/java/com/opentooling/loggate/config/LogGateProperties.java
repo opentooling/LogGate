@@ -11,6 +11,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param namespaces namespace-to-team-to-group resolution settings
  * @param loki the upstream Loki read endpoint
  * @param windows how an export's time range is divided
+ * @param oidc identity provider settings
  */
 @ConfigurationProperties("loggate")
 public record LogGateProperties(
@@ -20,7 +21,8 @@ public record LogGateProperties(
     @DefaultValue Quotas quotas,
     @DefaultValue Execution execution,
     @DefaultValue Storage storage,
-    @DefaultValue Access access) {
+    @DefaultValue Access access,
+    @DefaultValue Oidc oidc) {
 
   /** How callers are granted namespaces. */
   public enum AccessMode {
@@ -192,4 +194,12 @@ public record LogGateProperties(
       @DefaultValue("1m") Duration minDuration,
       @DefaultValue("1h") Duration maxDuration,
       @DefaultValue("5000") int maxCount) {}
+
+  /**
+   * @param caCertificate path to a PEM file of certificates to trust for the
+   *     OIDC issuer endpoint, for identity providers behind an internal
+   *     certificate authority; empty uses the JVM's default trust
+   */
+  public record Oidc(
+      @DefaultValue("") String caCertificate) {}
 }

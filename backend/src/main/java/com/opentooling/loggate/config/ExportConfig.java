@@ -1,14 +1,16 @@
 package com.opentooling.loggate.config;
 
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
+
 import com.opentooling.loggate.export.ExportEstimator;
 import com.opentooling.loggate.export.WindowPager;
 import com.opentooling.loggate.export.WindowPlanner;
 import com.opentooling.loggate.loki.HttpLokiClient;
 import com.opentooling.loggate.loki.LokiClient;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.web.client.RestClient;
+
 import tools.jackson.databind.ObjectMapper;
 
 /** The extraction engine: sizing, planning and paging. */

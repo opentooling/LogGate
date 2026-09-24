@@ -24,7 +24,7 @@ public final class TestProperties {
       LogGateProperties.Loki loki,
       LogGateProperties.Windows windows) {
     return new LogGateProperties(
-        namespaces, loki, windows, quotas(), execution(), storage(), access());
+        namespaces, loki, windows, quotas(), execution(), storage(), access(), oidc());
   }
 
   /** Defaults with a different namespace section. */
@@ -35,26 +35,30 @@ public final class TestProperties {
   /** Defaults with a different quota section. */
   public static LogGateProperties withQuotas(LogGateProperties.Quotas quotas) {
     return new LogGateProperties(
-        namespaces(), loki(), windows(), quotas, execution(), storage(), access());
+        namespaces(), loki(), windows(), quotas, execution(), storage(), access(), oidc());
   }
 
   /** Defaults with a different storage section. */
   public static LogGateProperties withStorage(LogGateProperties.Storage storage) {
     return new LogGateProperties(
-        namespaces(), loki(), windows(), quotas(), execution(), storage, access());
+        namespaces(), loki(), windows(), quotas(), execution(), storage, access(), oidc());
   }
 
   /** Defaults with a different access section. */
   public static LogGateProperties withAccess(LogGateProperties.Access access) {
     return new LogGateProperties(
-        namespaces(), loki(), windows(), quotas(), execution(), storage(), access);
+        namespaces(), loki(), windows(), quotas(), execution(), storage(), access, oidc());
   }
 
   /** Defaults with different namespace and Loki sections, for cluster tests. */
   public static LogGateProperties withClusters(
       LogGateProperties.Namespaces namespaces, LogGateProperties.Loki loki) {
     return new LogGateProperties(
-        namespaces, loki, windows(), quotas(), execution(), storage(), access());
+        namespaces, loki, windows(), quotas(), execution(), storage(), access(), oidc());
+  }
+
+  public static LogGateProperties.Oidc oidc() {
+    return new LogGateProperties.Oidc("");
   }
 
   public static LogGateProperties.Namespaces namespaces() {

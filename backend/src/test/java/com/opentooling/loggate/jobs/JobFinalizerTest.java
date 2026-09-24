@@ -24,8 +24,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @Import(PostgresContainerConfig.class)
 class JobFinalizerTest {
 
-  private static final Instant NOW = Instant.parse("2026-09-20T12:00:00Z");
-  private static final Instant FROM = Instant.parse("2026-09-20T00:00:00Z");
+  private static final Instant NOW = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+  private static final Instant FROM = NOW.minus(Duration.ofHours(12));
 
   @Autowired private ExportJobRepository jobs;
   @Autowired private JdbcClient db;

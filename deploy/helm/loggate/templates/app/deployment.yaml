@@ -66,6 +66,7 @@ spec:
         # The application's own image, which has wget: pinned to the release's
         # tag rather than a third-party image at :latest, and nothing extra to
         # pull or to approve for an air-gapped registry.
+        {{- if .Values.keycloak.enabled }}
         - name: wait-for-issuer
           image: {{ include "loggate.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -88,6 +89,7 @@ spec:
               memory: 32Mi
             limits:
               memory: 64Mi
+          {{- end }}
       containers:
         - name: loggate
           image: {{ include "loggate.image" . }}
@@ -125,6 +127,10 @@ spec:
                   name: {{ include "loggate.secretName" . }}
                   key: oidc-client-secret
                   {{- end }}
+            {{- if and .Values.oidc.caCertificate .Values.oidc.caCertificate.secretName }}
+            - name: OIDC_CA_CERTIFICATE
+              value: /etc/loggate/oidc-ca/{{ .Values.oidc.caCertificate.key }}
+            {{- end }}
             - name: TEAM_LABEL_KEY
               value: {{ .Values.namespaces.labelKey | quote }}
             - name: TEAM_GROUP_TEMPLATE
@@ -244,6 +250,11 @@ spec:
               mountPath: /etc/loggate/storage-ca
               readOnly: true
             {{- end }}
+            {{- if and .Values.oidc.caCertificate .Values.oidc.caCertificate.secretName }}
+            - name: oidc-ca
+              mountPath: /etc/loggate/oidc-ca
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -254,6 +265,14 @@ spec:
             items:
               - key: {{ .Values.storage.caCertificate.key }}
                 path: {{ .Values.storage.caCertificate.key }}
+        {{- end }}
+        {{- if and .Values.oidc.caCertificate .Values.oidc.caCertificate.secretName }}
+        - name: oidc-ca
+          secret:
+            secretName: {{ .Values.oidc.caCertificate.secretName }}
+            items:
+              - key: {{ .Values.oidc.caCertificate.key }}
+                path: {{ .Values.oidc.caCertificate.key }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

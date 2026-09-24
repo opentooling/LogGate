@@ -127,6 +127,11 @@ oidc:
   clientSecret: ""
   existingSecret: ""
   clientSecretKey: oidc-client-secret
+  # -- A certificate authority to trust for the OIDC issuer endpoint, for issuers
+  # behind an internal CA. A Secret in this namespace holding a PEM bundle.
+  caCertificate:
+    secretName: ""
+    key: ca.crt
 
 # -- RBAC for reading namespace metadata, the only cluster-scoped permission
 # LogGate needs. Only created in team-label mode; open mode reads nothing from

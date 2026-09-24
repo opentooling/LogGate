@@ -21,6 +21,18 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 @EnableWebSecurity
 public class SecurityConfig {
 
+  public SecurityConfig() {}
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public void initCustomCa(
+      org.springframework.beans.factory.ObjectProvider<LogGateProperties> propertiesProvider) {
+    LogGateProperties properties = propertiesProvider.getIfAvailable();
+    if (properties != null && !properties.oidc().caCertificate().isBlank()) {
+      com.opentooling.loggate.security.CaCertificates.configureDefaultSslContext(
+          java.nio.file.Path.of(properties.oidc().caCertificate()));
+    }
+  }
+
   /**
    * Signs users in as usual, and keeps the client roles from their access
    * token, which is the only place Keycloak puts them by default.
