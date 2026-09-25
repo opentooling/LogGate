@@ -37,7 +37,8 @@ choose **Sign in with single sign-on**. There is no separate LogGate password.
 
 <img alt="The Keycloak sign-in page" src="images/01-sign-in.png" width="640">
 
-**Sign out** also signs you out of single sign-on.
+**Sign out** also signs you out of single sign-on, and returns you to the
+landing page.
 
 ## What you can export
 

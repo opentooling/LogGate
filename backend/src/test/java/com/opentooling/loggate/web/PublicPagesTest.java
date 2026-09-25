@@ -51,14 +51,13 @@ class PublicPagesTest {
     mvc.perform(get("/welcome")).andExpect(forwardedUrl("/welcome.html"));
     mvc.perform(get("/guide")).andExpect(forwardedUrl("/guide/index.html"));
     mvc.perform(get("/guide/")).andExpect(forwardedUrl("/guide/index.html"));
-    mvc.perform(get("/signed-out")).andExpect(forwardedUrl("/signed-out.html"));
   }
 
   @Test
   void theirFilesAreNotBehindTheLogin() throws Exception {
     for (String path :
         new String[] {
-          "/welcome.html", "/signed-out.html", "/guide/index.html", "/guide/images/01-sign-in.png",
+          "/welcome.html", "/guide/index.html", "/guide/images/01-sign-in.png",
           "/site.css", "/theme-boot.js"
         }) {
       int status = mvc.perform(get(path)).andReturn().getResponse().getStatus();

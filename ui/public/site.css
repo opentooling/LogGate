@@ -1,6 +1,5 @@
 /*
- * The pages served without a session: the landing page, the signed-out page
- * and the guide. The application's colours and type, without the application:
+ * The pages served without a session: the landing page and the guide. The application's colours and type, without the application:
  * none of these pages loads it, because it signs in whoever opens it.
  */
 :root {
@@ -262,50 +261,6 @@ button:focus-visible {
   .features {
     grid-template-columns: 1fr;
   }
-}
-
-/* --- a single message: signed out -------------------------------------- */
-
-.center {
-  min-height: calc(100vh - 5rem);
-  display: grid;
-  place-items: center;
-  padding: 1.25rem;
-}
-
-.panel {
-  width: 100%;
-  max-width: 26rem;
-  padding: 1.75rem;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card);
-  box-shadow: 0 16px 40px rgb(15 23 42 / 0.1);
-}
-
-.panel .tick {
-  display: inline-grid;
-  place-items: center;
-  width: 2.4rem;
-  height: 2.4rem;
-  margin-bottom: 1rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ok) 15%, transparent);
-  color: var(--ok);
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.panel h1 {
-  margin: 0 0 1.25rem;
-  font-size: 1.3rem;
-  letter-spacing: -0.02em;
-}
-
-.panel p {
-  margin: 0 0 1.4rem;
-  color: var(--quiet);
-  font-size: 0.95rem;
 }
 
 /* --- guide ------------------------------------------------------------- */

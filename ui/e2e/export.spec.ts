@@ -160,11 +160,12 @@ test.describe("LogGate", () => {
     await signIn(page, "alice");
 
     await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("heading", { name: "You're signed out" })).toBeVisible();
+    await expect(page).toHaveURL(/\/welcome$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Bulk log export");
 
     // Back to the application, which must now ask who you are, not sign the
     // same person straight back in.
-    await page.getByRole("link", { name: "Sign in again" }).click();
+    await page.getByRole("link", { name: "Sign in with single sign-on" }).click();
     await expect(page.locator("#username")).toBeVisible();
   });
 

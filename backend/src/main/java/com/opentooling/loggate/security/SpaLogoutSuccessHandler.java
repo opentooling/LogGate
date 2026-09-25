@@ -15,7 +15,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
  * <p>Ending only LogGate's session signs nobody out: the provider's session is
  * still there, so the next page load signs the same person straight back in.
  * This sends the browser on to the provider's end-session endpoint, which ends
- * that session too and returns to LogGate's signed-out page.
+ * that session too and returns to LogGate's landing page.
  *
  * <p>The page signs out with a fetch, because the CSRF token it holds can only
  * be sent as a header, and a fetch cannot follow a redirect to another origin.
@@ -24,15 +24,17 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
  */
 public final class SpaLogoutSuccessHandler extends OidcClientInitiatedLogoutSuccessHandler {
 
-  /** Where the provider returns to once it has signed the user out. */
-  public static final String SIGNED_OUT_PAGE = "/signed-out";
-
-  public SpaLogoutSuccessHandler(ClientRegistrationRepository registrations) {
+  /**
+   * @param landingPage where the provider returns to once it has signed the
+   *     user out: a page served without a session, so it does not sign them in
+   *     again
+   */
+  public SpaLogoutSuccessHandler(ClientRegistrationRepository registrations, String landingPage) {
     super(registrations);
-    setPostLogoutRedirectUri("{baseUrl}" + SIGNED_OUT_PAGE);
+    setPostLogoutRedirectUri("{baseUrl}" + landingPage);
     // Without an OIDC session to end, for instance after it expired, land on
     // the same page rather than on the application, which would sign in again.
-    setDefaultTargetUrl(SIGNED_OUT_PAGE);
+    setDefaultTargetUrl(landingPage);
   }
 
   @Override

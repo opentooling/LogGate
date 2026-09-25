@@ -65,11 +65,11 @@ class SignOutTest {
             .getContentAsString();
 
     // The provider's end-session endpoint, told who is signing out and where
-    // to send them afterwards: a page that does not sign them in again.
+    // to send them afterwards: the landing page, which does not sign them in again.
     assertThat(body)
         .contains("https://issuer.test/logout?")
         .contains("id_token_hint=the-id-token")
-        .contains("post_logout_redirect_uri=http://localhost/signed-out");
+        .contains("post_logout_redirect_uri=http://localhost/welcome");
   }
 
   @Test
@@ -83,12 +83,12 @@ class SignOutTest {
   }
 
   @Test
-  void withNoProviderSessionToEndItStillLandsOnTheSignedOutPage() throws Exception {
+  void withNoProviderSessionToEndItStillLandsOnTheLandingPage() throws Exception {
     // Signed in by another route, so there is no provider session to end;
     // the application itself would sign them straight back in.
     mvc.perform(post("/logout").with(oidcLogin()).with(csrf()).accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.redirect").value("/signed-out"));
+        .andExpect(jsonPath("$.redirect").value("/welcome"));
   }
 
   @Test
@@ -98,9 +98,9 @@ class SignOutTest {
   }
 
   @Test
-  void theSignedOutPageIsServedWithoutASession() throws Exception {
+  void theLandingPageIsServedWithoutASession() throws Exception {
     // Not sent to sign in, which would undo the sign-out.
-    int status = mvc.perform(get("/signed-out")).andReturn().getResponse().getStatus();
+    int status = mvc.perform(get("/welcome")).andReturn().getResponse().getStatus();
     assertThat(status).isNotIn(302, 401);
   }
 }

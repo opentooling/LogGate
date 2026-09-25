@@ -425,7 +425,7 @@ own, with no envelope added.
 
 **Public pages.** Someone arriving without a session lands on `/welcome`
 rather than being sent straight to the identity provider; API calls still get
-a 401. `/welcome`, `/guide` and `/signed-out` are static pages served without a
+a 401. `/welcome` and `/guide` are static pages served without a
 session and load nothing that needs one. The guide is built from
 `docs/USER-GUIDE.md` with every UI build, so the published guide and the
 repository's are the same document.
@@ -435,7 +435,7 @@ through OIDC RP-initiated logout; ending only LogGate's would sign the same
 person straight back in on the next page load. The page posts to `/logout`
 with its CSRF header and is answered with the provider's end-session URL,
 because a fetch cannot follow a redirect to another origin; the provider then
-returns to a static signed-out page that is served without a session. The
+returns to the landing page, which is served without a session. The
 provider must allow that page as a post-logout redirect URI; the demo realm
 does, and a production client needs `<app>/*` added.
 

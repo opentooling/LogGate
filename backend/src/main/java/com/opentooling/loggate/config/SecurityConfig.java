@@ -21,13 +21,12 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 @EnableWebSecurity
 public class SecurityConfig {
 
-  /** Where someone arrives when they are not signed in. */
+  /** Where someone arrives when they are not signed in, and where signing out leaves them. */
   public static final String WELCOME_PAGE = "/welcome";
 
   /** Served to anyone, signed in or not: each short path and the file behind it. */
   static final String[] PUBLIC_PAGES = {
     WELCOME_PAGE, "/welcome.html",
-    com.opentooling.loggate.security.SpaLogoutSuccessHandler.SIGNED_OUT_PAGE, "/signed-out.html",
     "/guide", "/guide/", "/guide/index.html", "/guide/images/**",
     "/site.css", "/theme-boot.js"
   };
@@ -81,9 +80,9 @@ public class SecurityConfig {
                         "/actuator/health/**", "/actuator/info", "/actuator/prometheus",
                         "/livez", "/readyz")
                     .permitAll()
-                    // The pages for someone not signed in: what LogGate is, how
-                    // to use it, and that they have signed out. Static, and
-                    // holding nothing that needs a session.
+                    // The pages for someone not signed in, or just signed out:
+                    // what LogGate is and how to use it. Static, and holding
+                    // nothing that needs a session.
                     .requestMatchers(PUBLIC_PAGES)
                     .permitAll()
                     .anyRequest()
@@ -96,7 +95,8 @@ public class SecurityConfig {
             logout ->
                 logout
                     .logoutSuccessHandler(
-                        new com.opentooling.loggate.security.SpaLogoutSuccessHandler(registrations))
+                        new com.opentooling.loggate.security.SpaLogoutSuccessHandler(
+                            registrations, WELCOME_PAGE))
                     .permitAll())
         // The SPA reads the CSRF cookie and echoes it back, so it must not be
         // HttpOnly. It is not a secret: it defends against cross-origin writes.

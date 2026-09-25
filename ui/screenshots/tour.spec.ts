@@ -193,9 +193,6 @@ test("the public pages", async ({ page }) => {
   await page.goto("/guide");
   await expect(page.getByRole("heading", { name: "LogGate user guide" })).toBeVisible();
   await page.screenshot({ path: `${OUT}/16-guide.png` });
-  await page.goto("/signed-out");
-  await expect(page.getByRole("heading", { name: "You're signed out" })).toBeVisible();
-  await page.screenshot({ path: `${OUT}/17-signed-out.png` });
 });
 
 test("someone with no team", async ({ page }) => {

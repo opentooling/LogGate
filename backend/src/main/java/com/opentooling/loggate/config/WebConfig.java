@@ -50,7 +50,6 @@ public class WebConfig {
       public void addViewControllers(
           org.springframework.web.servlet.config.annotation.ViewControllerRegistry registry) {
         registry.addViewController("/welcome").setViewName("forward:/welcome.html");
-        registry.addViewController("/signed-out").setViewName("forward:/signed-out.html");
         registry.addViewController("/guide").setViewName("forward:/guide/index.html");
         registry.addViewController("/guide/").setViewName("forward:/guide/index.html");
       }

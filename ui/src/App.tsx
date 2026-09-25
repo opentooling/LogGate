@@ -66,8 +66,8 @@ export function App() {
       const { redirect } = await api.signOut();
       window.location.assign(redirect);
     } catch {
-      // The session may already be gone; the signed-out page says the same.
-      window.location.assign("/signed-out.html");
+      // The session may already be gone; either way, back to the landing page.
+      window.location.assign("/welcome");
     }
   }
 

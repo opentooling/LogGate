@@ -136,8 +136,8 @@ access for a Keycloak group across several clusters, an external PostgreSQL,
 and NetApp ONTAP S3 behind an internal CA. It includes the Keycloak steps and
 the secrets to create.
 
-Signing out also signs out of Keycloak, which returns to
-`https://<your LogGate host>/signed-out.html`. Add `https://<your LogGate host>/*`
+Signing out also signs out of Keycloak, which returns to the landing page,
+`https://<your LogGate host>/welcome`. Add `https://<your LogGate host>/*`
 to the client's **Valid post logout redirect URIs**, or Keycloak stops at an
 error page instead of returning.
 
