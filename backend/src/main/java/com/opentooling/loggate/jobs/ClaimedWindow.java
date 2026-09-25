@@ -12,7 +12,7 @@ import java.util.UUID;
  * @param to end of the window, exclusive
  * @param selector the job's generated LogQL selector
  * @param byteLimit the job's byte cap
- * @param jobBytesWritten bytes the job had already written when this was claimed
+ * @param jobLogBytes log bytes the job had already read when this was claimed
  * @param attempts how many times this window has been attempted, including now
  */
 public record ClaimedWindow(
@@ -22,6 +22,6 @@ public record ClaimedWindow(
     Instant to,
     String selector,
     long byteLimit,
-    long jobBytesWritten,
+    long jobLogBytes,
     int attempts,
     com.opentooling.loggate.export.OutputFormat format) {}

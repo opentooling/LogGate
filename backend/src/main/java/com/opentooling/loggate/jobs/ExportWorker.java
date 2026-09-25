@@ -109,21 +109,23 @@ public class ExportWorker {
                   entry -> {
                     writer.write(entry);
                     if (writer.entries() % checkEveryEntries == 0) {
-                      checkStillAllowedToRun(window, writer.uncompressedBytes());
+                      checkStillAllowedToRun(window, writer.logBytes());
                     }
                   });
               counters.entries = writer.entries();
               counters.bytes = writer.uncompressedBytes();
+              counters.logBytes = writer.logBytes();
             }
             counters.sha256 = java.util.HexFormat.of().formatHex(digest.digest());
             counters.crc32 = crc.getValue();
           });
       // The final tally is checked too, so a window that only exceeds the cap
       // at its very end is still caught.
-      checkStillAllowedToRun(window, counters.bytes);
+      checkStillAllowedToRun(window, counters.logBytes);
       jobs.recordArtifact(
           window.jobId(), "PART", key, storedBytes, counters.sha256, counters.crc32);
-      jobs.completeWindow(window.jobId(), window.index(), counters.bytes, counters.entries);
+      jobs.completeWindow(
+          window.jobId(), window.index(), counters.bytes, counters.logBytes, counters.entries);
       metrics.windowCompleted(
           Duration.ofNanos(System.nanoTime() - startedAt), counters.entries, counters.bytes);
       log.debug(
@@ -172,17 +174,19 @@ public class ExportWorker {
   /**
    * Renews the lease and enforces the two reasons to stop mid-window.
    *
-   * <p>The byte total is the job's tally when this window was claimed plus what
-   * this window has produced. Under concurrency that under-counts what other
+   * <p>The byte total is the job's tally of log bytes when this window was
+   * claimed plus what this window has read: log lines as Loki counts them, the
+   * unit the cap was set in from the estimate, rather than the larger JSON that
+   * carries them. Under concurrency that under-counts what other
    * windows are writing right now, so the cap is approached rather than
    * enforced to the byte - which is the right trade: the alternative is a
    * shared counter updated per entry.
    */
-  private void checkStillAllowedToRun(ClaimedWindow window, long windowBytes) {
+  private void checkStillAllowedToRun(ClaimedWindow window, long windowLogBytes) {
     if (jobs.isCancelRequested(window.jobId())) {
       throw new ExportCancelledException();
     }
-    long total = window.jobBytesWritten() + windowBytes;
+    long total = window.jobLogBytes() + windowLogBytes;
     if (window.byteLimit() > 0 && total > window.byteLimit()) {
       throw new ByteLimitExceededException(total, window.byteLimit());
     }
@@ -202,6 +206,7 @@ public class ExportWorker {
   private static final class Counters {
     private long entries;
     private long bytes;
+    private long logBytes;
     private String sha256;
     private long crc32;
   }

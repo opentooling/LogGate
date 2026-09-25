@@ -148,7 +148,7 @@ class ExportJobRepositoryTest {
     UUID id = createJob(2);
     repository.claimNext("worker-1", LEASE);
 
-    repository.completeWindow(id, 0, 500, 5);
+    repository.completeWindow(id, 0, 500, 500, 5);
 
     ExportJob job = repository.find(id).orElseThrow();
     assertThat(job.windowsDone()).isEqualTo(1);
@@ -161,8 +161,8 @@ class ExportJobRepositoryTest {
   @Test
   void movesToFinalizingOnceEveryWindowIsDone() {
     UUID id = createJob(2);
-    repository.completeWindow(id, 0, 100, 1);
-    repository.completeWindow(id, 1, 100, 1);
+    repository.completeWindow(id, 0, 100, 100, 1);
+    repository.completeWindow(id, 1, 100, 100, 1);
 
     assertThat(repository.find(id).orElseThrow().state()).isEqualTo(JobState.FINALIZING);
   }
@@ -172,8 +172,8 @@ class ExportJobRepositoryTest {
     // Two workers can run the same window after a lease lapses. The part they
     // write is identical, so the second completion must not be counted twice.
     UUID id = createJob(2);
-    repository.completeWindow(id, 0, 100, 1);
-    repository.completeWindow(id, 0, 100, 1);
+    repository.completeWindow(id, 0, 100, 100, 1);
+    repository.completeWindow(id, 0, 100, 100, 1);
 
     ExportJob job = repository.find(id).orElseThrow();
     assertThat(job.windowsDone()).isEqualTo(1);
@@ -248,13 +248,32 @@ class ExportJobRepositoryTest {
   @Test
   void countsATeamsRecentExportsForTheDailyBudget() {
     UUID id = createJob(1);
-    repository.completeWindow(id, 0, 5_000, 10);
+    repository.completeWindow(id, 0, 5_000, 5_000, 10);
 
     long used = repository.bytesExportedByTeamSince("platform", Instant.now().minusSeconds(3600));
 
     assertThat(used).isGreaterThanOrEqualTo(5_000);
     assertThat(repository.bytesExportedByTeamSince("payments", Instant.now().minusSeconds(3600)))
         .isZero();
+  }
+
+  @Test
+  void chargesTheBudgetForTheLogsReadRatherThanTheJsonWritten() {
+    // The budget is set in the estimate's units, which are Loki's line bytes.
+    // Charging the JSON around each line would spend it two to three times over.
+    UUID id = createJob(2);
+    repository.completeWindow(id, 0, 5_000, 2_000, 10);
+
+    ExportJob job = repository.find(id).orElseThrow();
+    assertThat(job.bytesWritten()).isEqualTo(5_000);
+    assertThat(job.logBytes()).isEqualTo(2_000);
+    // The next window is held to the cap from the same count.
+    assertThat(repository.claimNext("worker", Duration.ofMinutes(1)).orElseThrow().jobLogBytes())
+        .isEqualTo(2_000);
+
+    repository.finish(id, JobState.READY, null, null);
+    assertThat(repository.bytesExportedByTeamSince("platform", Instant.now().minusSeconds(3600)))
+        .isEqualTo(2_000);
   }
 
   @Test
@@ -280,7 +299,7 @@ class ExportJobRepositoryTest {
   @Test
   void ignoresExportsOlderThanTheBudgetWindow() {
     UUID id = createJob(1);
-    repository.completeWindow(id, 0, 5_000, 10);
+    repository.completeWindow(id, 0, 5_000, 5_000, 10);
 
     assertThat(repository.bytesExportedByTeamSince("platform", Instant.now().plusSeconds(60)))
         .isZero();
@@ -301,7 +320,7 @@ class ExportJobRepositoryTest {
   @Test
   void reportsJobsReadyToFinalizeAndCancelledJobsToClose() {
     UUID finishing = createJob(1);
-    repository.completeWindow(finishing, 0, 1, 1);
+    repository.completeWindow(finishing, 0, 1, 1, 1);
     UUID cancelled = createJob(1);
     repository.requestCancel(cancelled, "alice-subject");
 

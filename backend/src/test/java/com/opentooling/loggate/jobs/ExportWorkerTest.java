@@ -144,6 +144,29 @@ class ExportWorkerTest {
   }
 
   @Test
+  void holdsTheCapToTheLogLinesRatherThanTheJsonAroundThem() {
+    // The cap comes from the estimate, which counts log lines as Loki does.
+    // JSON lines carry each entry's labels and timestamp too, two to three
+    // times the size, and holding them to the cap failed exports that were
+    // well within it.
+    var loki = new FakeLokiClient();
+    long logBytes = 0;
+    for (int i = 0; i < 20; i++) {
+      String line = "request served " + i;
+      loki.entry(FROM_NANOS + i, "api-0", line);
+      logBytes += line.length();
+    }
+    UUID id = createJob(logBytes + 10);
+
+    worker(loki, store, 3, 1).runOnce();
+
+    ExportJob job = jobs.find(id).orElseThrow();
+    assertThat(job.state()).isEqualTo(JobState.FINALIZING);
+    assertThat(job.logBytes()).isEqualTo(logBytes);
+    assertThat(job.bytesWritten()).isGreaterThan(2 * logBytes);
+  }
+
+  @Test
   void stopsMidWindowWhenTheJobIsCancelled() {
     UUID id = createJob(Long.MAX_VALUE);
     jobs.requestCancel(id, "alice-subject");

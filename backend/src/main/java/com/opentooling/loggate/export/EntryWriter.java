@@ -27,6 +27,7 @@ public class EntryWriter implements AutoCloseable {
   private final Writer writer;
   private long entries;
   private long uncompressedBytes;
+  private long logBytes;
 
   public EntryWriter(OutputStream out, ObjectMapper json) {
     this(out, json, OutputFormat.JSON);
@@ -60,7 +61,8 @@ public class EntryWriter implements AutoCloseable {
       throw new UncheckedIOException(e);
     }
     entries++;
-    uncompressedBytes += line.length() + 1L;
+    uncompressedBytes += utf8Length(line) + 1L;
+    logBytes += utf8Length(entry.line());
   }
 
   /** How many entries have been written. */
@@ -69,13 +71,46 @@ public class EntryWriter implements AutoCloseable {
   }
 
   /**
-   * Uncompressed bytes written so far.
+   * Uncompressed bytes written so far: the size of the files once unzipped.
    *
-   * <p>Quotas are counted uncompressed because that is what the volume estimate
-   * reports, so admission and enforcement speak the same units.
+   * <p>For JSON lines this is two to three times {@link #logBytes()}, since each
+   * entry carries its labels and timestamp, so it is what is reported rather
+   * than what quotas are held to.
    */
   public long uncompressedBytes() {
     return uncompressedBytes;
+  }
+
+  /**
+   * Bytes of log lines read so far, as Loki counts them.
+   *
+   * <p>The estimate is in these units, so the byte cap and the team budget are
+   * too: admission and enforcement measure the same thing, whichever format
+   * the files are written in.
+   */
+  public long logBytes() {
+    return logBytes;
+  }
+
+  /** The UTF-8 length of {@code text}, without encoding it. */
+  static long utf8Length(CharSequence text) {
+    long length = 0;
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (c < 0x80) {
+        length += 1;
+      } else if (c < 0x800) {
+        length += 2;
+      } else if (Character.isHighSurrogate(c)
+          && i + 1 < text.length()
+          && Character.isLowSurrogate(text.charAt(i + 1))) {
+        length += 4;
+        i++;
+      } else {
+        length += 3;
+      }
+    }
+    return length;
   }
 
   @Override

@@ -336,7 +336,11 @@ Two things stop an export mid-flight:
   produced, which under-counts what other windows are writing concurrently. So
   the cap is *approached* rather than enforced to the byte. The alternative is
   a shared counter updated per entry, which is a lot of contention to buy
-  precision nobody needs.
+  precision nobody needs. It counts **log bytes**, the lines as Loki measures
+  them, because that is what the estimate the cap came from is in. The JSON
+  written around each line is two to three times larger, and holding it to the
+  cap failed exports that were well within it; bytes written is kept for
+  reporting only.
 
 ## Artifacts and delivery
 
@@ -388,7 +392,7 @@ The backstop matters: a sweeper that breaks silently must not mean production
 log data lives in a bucket forever.
 
 The team budget is **rolling**, not calendar: no midnight cliff, and no
-question about whose midnight. It counts what has been written *plus* the
+question about whose midnight. It counts the log bytes read *plus* the
 estimate of admitted-but-unfinished exports — counting only finished ones
 would let someone start ten large jobs at once and stay under budget purely
 because none had finished. Failed exports are excluded, since a team should not

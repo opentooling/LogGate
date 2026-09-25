@@ -74,7 +74,7 @@ class JobFinalizerTest {
   @Test
   void publishesAJobWhoseWindowsHaveAllFinished() {
     UUID id = createJob();
-    jobs.completeWindow(id, 0, 10, 1);
+    jobs.completeWindow(id, 0, 10, 10, 1);
 
     assertThat(finalizer().publishFinished()).isEqualTo(1);
 
@@ -95,7 +95,7 @@ class JobFinalizerTest {
     // An export nobody can verify is not finished, so the manifest is written
     // before the job is advertised as ready.
     UUID id = createJob();
-    jobs.completeWindow(id, 0, 10, 1);
+    jobs.completeWindow(id, 0, 10, 10, 1);
 
     finalizer().publishFinished();
 
@@ -110,7 +110,7 @@ class JobFinalizerTest {
   void leavesAJobUnpublishedIfItsManifestCannotBeWritten() {
     // Publishing without a manifest would advertise something unverifiable.
     UUID id = createJob();
-    jobs.completeWindow(id, 0, 10, 1);
+    jobs.completeWindow(id, 0, 10, 10, 1);
     var failing = new InMemoryObjectStore().failWith(new RuntimeException("bucket unreachable"));
 
     assertThat(finalizer(failing).publishFinished()).isZero();
@@ -121,7 +121,7 @@ class JobFinalizerTest {
   void sweepsTheArtifactsOfAnExpiredExport() {
     // These files are production log data; retention is the whole point.
     UUID id = createJob();
-    jobs.completeWindow(id, 0, 10, 1);
+    jobs.completeWindow(id, 0, 10, 10, 1);
     finalizer().publishFinished();
     store.put(PartKeys.part(id, 0), out -> out.write("data".getBytes()));
     // Expiry is compared against the database's clock, not the test's, so this
@@ -137,7 +137,7 @@ class JobFinalizerTest {
   @Test
   void leavesAnExpiredExportAloneIfItsArtifactsCannotBeSwept() {
     UUID id = createJob();
-    jobs.completeWindow(id, 0, 10, 1);
+    jobs.completeWindow(id, 0, 10, 10, 1);
     finalizer().publishFinished();
     jobs.setExpiry(id, Instant.now().minus(Duration.ofHours(1)));
     var failing = new InMemoryObjectStore().failWith(new RuntimeException("bucket unreachable"));
@@ -149,7 +149,7 @@ class JobFinalizerTest {
   @Test
   void doesNotSweepAnExportThatHasNotExpiredYet() {
     UUID id = createJob();
-    jobs.completeWindow(id, 0, 10, 1);
+    jobs.completeWindow(id, 0, 10, 10, 1);
     finalizer().publishFinished();
 
     assertThat(finalizer().sweepExpired()).isZero();

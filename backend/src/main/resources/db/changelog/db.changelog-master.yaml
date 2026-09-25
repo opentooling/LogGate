@@ -15,3 +15,5 @@ databaseChangeLog:
       file: db/changelog/changes/0007-job-pods.sql
   - include:
       file: db/changelog/changes/0008-job-format.sql
+  - include:
+      file: db/changelog/changes/0009-log-bytes.sql

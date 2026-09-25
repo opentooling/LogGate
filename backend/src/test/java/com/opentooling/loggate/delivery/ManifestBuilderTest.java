@@ -121,6 +121,24 @@ class ManifestBuilderTest {
   }
 
   @Test
+  void doesNotMistakeTheJsonAroundTheLinesForGrowth() {
+    // JSON lines are larger than the logs they carry, so what was written
+    // exceeds every estimate; only the logs read are compared with it.
+    withWindowsAndParts();
+    ExportJob written = job(NOW.minus(Duration.ofHours(4)), 400, 900);
+    ExportJob job =
+        new ExportJob(
+            written.id(), written.requestedBy(), written.state(), null, null,
+            written.namespaces(), written.selector(), written.from(), written.to(),
+            written.estimatedBytes(), written.byteLimit(), written.windowsTotal(),
+            written.windowsDone(), written.bytesWritten(), written.entriesWritten(), false,
+            written.createdAt(), null, null, List.of(),
+            com.opentooling.loggate.export.OutputFormat.JSON, 350);
+
+    assertThat(builder.build(job).caveats()).noneMatch(c -> c.contains("still receiving logs"));
+  }
+
+  @Test
   void saysNothingWhenThereIsNothingToWarnAbout() {
     withWindowsAndParts();
 

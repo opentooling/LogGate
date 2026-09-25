@@ -111,7 +111,7 @@ public class ExportJobRepository {
             RETURNING w.job_id, w.idx, w.window_from, w.window_to, w.attempts,
                       (SELECT j.selector FROM export_job j WHERE j.id = w.job_id) AS selector,
                       (SELECT j.byte_limit FROM export_job j WHERE j.id = w.job_id) AS byte_limit,
-                      (SELECT j.bytes_written FROM export_job j WHERE j.id = w.job_id) AS bytes_written,
+                      (SELECT j.log_bytes FROM export_job j WHERE j.id = w.job_id) AS log_bytes,
                       (SELECT j.format FROM export_job j WHERE j.id = w.job_id) AS format
             """)
         .param("owner", owner)
@@ -125,7 +125,7 @@ public class ExportJobRepository {
                     rs.getTimestamp("window_to").toInstant(),
                     rs.getString("selector"),
                     rs.getLong("byte_limit"),
-                    rs.getLong("bytes_written"),
+                    rs.getLong("log_bytes"),
                     rs.getInt("attempts"),
                     com.opentooling.loggate.export.OutputFormat.valueOf(rs.getString("format"))))
         .optional();
@@ -147,7 +147,7 @@ public class ExportJobRepository {
   }
 
   /** Marks a window finished and rolls its totals into the job. */
-  public void completeWindow(UUID jobId, int index, long bytes, long entries) {
+  public void completeWindow(UUID jobId, int index, long bytes, long logBytes, long entries) {
     transactions.executeWithoutResult(
         status -> {
           int updated =
@@ -155,10 +155,12 @@ public class ExportJobRepository {
                       """
                       UPDATE export_window
                          SET state = 'DONE', completed_at = now(), last_error = NULL,
-                             bytes_written = ?, entries_written = ?, lease_expires_at = NULL
+                             bytes_written = ?, log_bytes = ?, entries_written = ?,
+                             lease_expires_at = NULL
                        WHERE job_id = ? AND idx = ? AND state <> 'DONE'
                       """)
                   .param(bytes)
+                  .param(logBytes)
                   .param(entries)
                   .param(jobId)
                   .param(index)
@@ -173,6 +175,7 @@ public class ExportJobRepository {
                   UPDATE export_job
                      SET windows_done = windows_done + 1,
                          bytes_written = bytes_written + ?,
+                         log_bytes = log_bytes + ?,
                          entries_written = entries_written + ?,
                          state = CASE WHEN windows_done + 1 >= windows_total
                                       THEN 'FINALIZING' ELSE 'RUNNING' END,
@@ -181,6 +184,7 @@ public class ExportJobRepository {
                    WHERE id = ?
                   """)
               .param(bytes)
+              .param(logBytes)
               .param(entries)
               .param(jobId)
               .update();
@@ -273,15 +277,15 @@ public class ExportJobRepository {
   /**
    * Bytes a team has exported since {@code since}, for the daily budget.
    *
-   * <p>Counts what was actually written, plus what admitted-but-unfinished jobs
-   * are expected to write. Counting only finished exports would let someone
+   * <p>Counts the log bytes actually read, plus what admitted-but-unfinished jobs
+   * are expected to read: the estimate's units, whichever format was written. Counting only finished exports would let someone
    * start ten large jobs at once and stay under budget by virtue of none of
    * them having finished.
    */
   public long bytesExportedByTeamSince(String team, Instant since) {
     return db.sql(
             """
-            SELECT COALESCE(SUM(GREATEST(bytes_written, CASE WHEN state = ANY(?)
+            SELECT COALESCE(SUM(GREATEST(log_bytes, CASE WHEN state = ANY(?)
                                                              THEN estimated_bytes ELSE 0 END)), 0)
               FROM export_job
              WHERE teams @> ARRAY[?]::text[]
@@ -372,7 +376,7 @@ public class ExportJobRepository {
       SELECT id, requested_by, state, failure_code, failure_detail, namespaces, selector,
              time_from, time_to, estimated_bytes, byte_limit, windows_total, windows_done,
              bytes_written, entries_written, cancel_requested, created_at, finished_at,
-             expires_at, clusters, format
+             expires_at, clusters, format, log_bytes
         FROM export_job
       """;
 
@@ -400,7 +404,8 @@ public class ExportJobRepository {
         finished == null ? null : finished.toInstant(),
         expires == null ? null : expires.toInstant(),
         List.of((String[]) rs.getArray("clusters").getArray()),
-        com.opentooling.loggate.export.OutputFormat.valueOf(rs.getString("format")));
+        com.opentooling.loggate.export.OutputFormat.valueOf(rs.getString("format")),
+        rs.getLong("log_bytes"));
   }
 
   /** Records an artifact belonging to a job. Replaces any earlier row for the same key. */

@@ -88,7 +88,9 @@ public class ManifestBuilder {
               + " minutes of the export. Entries still held in Loki's ingesters may be missing;"
               + " re-run later for a complete picture of that period.");
     }
-    if (job.bytesWritten() > job.estimatedBytes() && job.estimatedBytes() > 0) {
+    // Log bytes, the estimate's units: what was written includes the JSON
+    // around each line, so would exceed every estimate.
+    if (job.logBytes() > job.estimatedBytes() && job.estimatedBytes() > 0) {
       caveats.add(
           "More was exported than the pre-flight estimate predicted, which is normal for a"
               + " namespace still receiving logs during the export.");

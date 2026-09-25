@@ -28,6 +28,9 @@ import java.util.UUID;
  * @param expiresAt when its files are deleted, once it is ready
  * @param clusters clusters it was taken from; empty with no cluster dimension
  * @param format what its files hold
+ * @param logBytes bytes of log lines read so far, as Loki counts them: the
+ *     units of the estimate and the cap, where {@code bytesWritten} includes
+ *     the JSON around each line
  */
 public record ExportJob(
     UUID id,
@@ -50,7 +53,36 @@ public record ExportJob(
     Instant finishedAt,
     Instant expiresAt,
     List<String> clusters,
-    com.opentooling.loggate.export.OutputFormat format) {
+    com.opentooling.loggate.export.OutputFormat format,
+    long logBytes) {
+
+  /** An export whose log bytes are taken to be what it wrote, as before they were counted apart. */
+  public ExportJob(
+      UUID id,
+      String requestedBy,
+      JobState state,
+      String failureCode,
+      String failureDetail,
+      List<String> namespaces,
+      String selector,
+      Instant from,
+      Instant to,
+      long estimatedBytes,
+      long byteLimit,
+      int windowsTotal,
+      int windowsDone,
+      long bytesWritten,
+      long entriesWritten,
+      boolean cancelRequested,
+      Instant createdAt,
+      Instant finishedAt,
+      Instant expiresAt,
+      List<String> clusters,
+      com.opentooling.loggate.export.OutputFormat format) {
+    this(id, requestedBy, state, failureCode, failureDetail, namespaces, selector, from, to,
+        estimatedBytes, byteLimit, windowsTotal, windowsDone, bytesWritten, entriesWritten,
+        cancelRequested, createdAt, finishedAt, expiresAt, clusters, format, bytesWritten);
+  }
 
   /** An export in the default format, as every export was before there was a choice. */
   public ExportJob(

@@ -40,15 +40,49 @@ class EntryWriterTest {
 
   @Test
   void countsEntriesAndUncompressedBytes() {
-    // Uncompressed, because that is the unit the volume estimate reports, so
-    // admission and enforcement speak the same language.
+    long uncompressed;
     try (var writer = new EntryWriter(sink, JsonMapper.builder().build())) {
       writer.write(new LogEntry(100, "hello", Map.of()));
       writer.write(new LogEntry(200, "world", Map.of()));
 
       assertThat(writer.entries()).isEqualTo(2);
-      assertThat(writer.uncompressedBytes()).isGreaterThan(20);
+      uncompressed = writer.uncompressedBytes();
     }
+    // Exactly the size of the files once unzipped.
+    assertThat(uncompressed).isEqualTo(written().length());
+  }
+
+  @Test
+  void countsTheLogLinesApartFromTheJsonAroundThem() {
+    // The lines alone are what Loki counts, and so what the estimate, the cap
+    // and the budget are in; the JSON is two to three times larger.
+    try (var writer = new EntryWriter(sink, JsonMapper.builder().build())) {
+      writer.write(new LogEntry(100, "hello", Map.of("pod", "api-0", "namespace", "platform-dev")));
+      writer.write(new LogEntry(200, "world", Map.of("pod", "api-1", "namespace", "platform-dev")));
+
+      assertThat(writer.logBytes()).isEqualTo(10);
+      assertThat(writer.uncompressedBytes()).isGreaterThan(3 * writer.logBytes());
+    }
+  }
+
+  @Test
+  void countsBytesAsUtf8RatherThanCharacters() {
+    try (var writer = new EntryWriter(sink, JsonMapper.builder().build(), OutputFormat.RAW)) {
+      writer.write(new LogEntry(1L, "caf\u00e9 \u20ac5 \ud83d\ude00", Map.of()));
+      // c a f é(2) space €(3) 5 space 😀(4)
+      assertThat(writer.logBytes()).isEqualTo(3 + 2 + 1 + 3 + 1 + 1 + 4);
+      assertThat(writer.uncompressedBytes()).isEqualTo(writer.logBytes() + 1);
+    }
+    assertThat(sink.size()).isPositive();
+  }
+
+  @Test
+  void countsALoneSurrogateAsTheReplacementItIsWrittenAs() {
+    // Encoded as '?' by the writer but counted as three, the width of U+FFFD:
+    // a malformed line is rare, and over-counting it is the safe direction.
+    assertThat(EntryWriter.utf8Length("\ud83d")).isEqualTo(3);
+    assertThat(EntryWriter.utf8Length("\ud83dx")).isEqualTo(4);
+    assertThat(EntryWriter.utf8Length("\ude00")).isEqualTo(3);
   }
 
   @Test
