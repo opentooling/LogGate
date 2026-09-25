@@ -44,7 +44,7 @@ flowchart LR
     pg[(PostgreSQL)]
   end
 
-  s3[(Export artifact store<br/>S3 / MinIO)]
+  s3[(Export artifact store<br/>S3-compatible)]
   kc[Keycloak]
   k8s[Kubernetes API]
   loki[Grafana Loki]
@@ -513,8 +513,9 @@ that LogGate does not send; point LogGate at Grafana's Loki gateway instead.
 
 ### Object storage compatibility
 
-Any S3-compatible store works: MinIO, NetApp ONTAP S3 and StorageGRID among
-them. (NetApp Trident provisions file and block volumes, not S3; on NetApp, the
+Any S3-compatible store works: MinIO, NetApp ONTAP S3, StorageGRID and Versity
+S3 Gateway among them; the storage tests and the local stack run against
+Versity, since MinIO no longer publishes images a fresh machine can pull. (NetApp Trident provisions file and block volumes, not S3; on NetApp, the
 object store is ONTAP S3 or StorageGRID.) LogGate uses multipart upload,
 GetObject, HeadObject, ListObjectsV2, per-object DeleteObject and presigned GET
 URLs. ONTAP S3 has supported all of them since 9.8, except presigned URLs,
@@ -534,7 +535,7 @@ Secret or a ConfigMap: a CA certificate is public, and a ConfigMap is where
 OpenShift's trusted-CA-bundle injection writes one.
 
 Locally, `deploy/local/deploy.sh` creates a k3d cluster and installs Loki,
-Alloy, Grafana and MinIO alongside it, so the full path is exercised on a
+Alloy, Grafana and Versity S3 Gateway alongside it, so the full path is exercised on a
 laptop. `deploy/local/seed-logs.sh` creates labelled namespaces with chatty
 workloads — both realistic volume and the fixtures the authorization model is
 tested against.

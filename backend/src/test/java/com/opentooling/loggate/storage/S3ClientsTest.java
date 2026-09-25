@@ -19,7 +19,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.testcontainers.containers.MinIOContainer;
 import software.amazon.awssdk.core.interceptor.Context;
 import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
 import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
@@ -44,32 +43,27 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 class S3ClientsTest {
 
   private static final String BUCKET = "loggate-exports";
-  private static MinIOContainer minio;
+  private static S3TestServer server;
 
   @BeforeAll
   static void startStorage() {
-    minio =
-        new MinIOContainer(
-            org.testcontainers.utility.DockerImageName.parse(
-                    "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z")
-                .asCompatibleSubstituteFor("minio/minio"));
-    minio.withStartupAttempts(3);
-    minio.start();
+    server = new S3TestServer();
+    server.start();
   }
 
   @AfterAll
   static void stopStorage() {
-    minio.stop();
+    server.stop();
   }
 
   private static LogGateProperties.Storage storage(
       LogGateProperties.Storage.Checksums checksums, String caCertificate) {
     return new LogGateProperties.Storage(
-        minio.getS3URL(),
+        server.endpoint(),
         "us-east-1",
         BUCKET,
-        minio.getUserName(),
-        minio.getPassword(),
+        S3TestServer.ACCESS_KEY,
+        S3TestServer.SECRET_KEY,
         true,
         "",
         Duration.ofMinutes(30),

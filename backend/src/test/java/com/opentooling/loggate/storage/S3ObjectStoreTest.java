@@ -11,7 +11,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.MinIOContainer;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -35,42 +34,35 @@ class S3ObjectStoreTest {
 
   private static final String BUCKET = "loggate-exports";
 
-  private static MinIOContainer minio;
+  private static S3TestServer server;
   private static S3Client s3;
   private static software.amazon.awssdk.services.s3.presigner.S3Presigner presigner;
   private static S3ObjectStore store;
 
   @BeforeAll
   static void startStorage() {
-    // Pinned, and from quay: MinIO's Docker Hub "latest" is no longer public,
-    // and this is the same image the local chart deploys.
-    minio =
-        new MinIOContainer(
-            org.testcontainers.utility.DockerImageName.parse(
-                    "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z")
-                .asCompatibleSubstituteFor("minio/minio"));
+    server = new S3TestServer();
     // The container runtime intermittently drops its API connection when the
     // machine is busy, which shows up as a container that never starts. Retry
     // rather than leave a test that fails every other run.
-    minio.withStartupAttempts(3);
-    minio.start();
+    server.start();
     s3 =
         S3Client.builder()
-            .endpointOverride(URI.create(minio.getS3URL()))
+            .endpointOverride(URI.create(server.endpoint()))
             .region(Region.US_EAST_1)
             .credentialsProvider(
                 StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(minio.getUserName(), minio.getPassword())))
+                    AwsBasicCredentials.create(S3TestServer.ACCESS_KEY, S3TestServer.SECRET_KEY)))
             .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
             .build();
     s3.createBucket(CreateBucketRequest.builder().bucket(BUCKET).build());
     presigner =
         software.amazon.awssdk.services.s3.presigner.S3Presigner.builder()
-            .endpointOverride(URI.create(minio.getS3URL()))
+            .endpointOverride(URI.create(server.endpoint()))
             .region(Region.US_EAST_1)
             .credentialsProvider(
                 StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(minio.getUserName(), minio.getPassword())))
+                    AwsBasicCredentials.create(S3TestServer.ACCESS_KEY, S3TestServer.SECRET_KEY)))
             .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
             .build();
     store = new S3ObjectStore(s3, presigner, BUCKET);
@@ -84,8 +76,8 @@ class S3ObjectStoreTest {
     if (s3 != null) {
       s3.close();
     }
-    if (minio != null) {
-      minio.stop();
+    if (server != null) {
+      server.stop();
     }
   }
 

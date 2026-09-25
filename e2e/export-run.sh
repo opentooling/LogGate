@@ -53,9 +53,11 @@ check_at_least "bytes were written" 1 "$(body "$r" | jq_get 'd["bytesWritten"]')
 # --- the artifacts are really in object storage ------------------------------
 echo
 echo "the parts are in object storage"
-parts="$(kubectl --context "$CONTEXT" exec -n "$OBS_NS" deploy/minio -- \
-  sh -c "ls -1 /export/$BUCKET/jobs/$JOB_ID/parts 2>/dev/null | wc -l" 2>/dev/null | tr -d '[:space:]')"
-check_at_least "a part exists per window" 1 "$parts"
+# Asked through the S3 API, as any store answers it: a part per window, and
+# the manifest beside them.
+stored="$(stored_objects "$JOB_ID")"
+windows="$(body "$(api "$JAR" GET "/api/exports/$JOB_ID")" | jq_get 'd["windowsTotal"]')"
+check_at_least "a part exists per window, and the manifest" "$((windows + 1))" "$stored"
 
 # --- cancellation ------------------------------------------------------------
 echo

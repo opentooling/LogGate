@@ -1,0 +1,115 @@
+# Object storage for LogGate's export artifacts in the local stack: Versity
+# S3 Gateway, serving buckets from a volume. Pinned to the same image the
+# backend's storage tests run against.
+#
+# In place of MinIO, which no longer publishes images a fresh machine can pull.
+# The Service keeps MinIO's port and the ingress keeps its host, so presigned
+# download links look as they always did.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s3-root
+type: Opaque
+stringData:
+  # The local stack's only credentials, the same ones values-local.yaml gives
+  # LogGate. Nothing here is used outside a laptop or a CI runner.
+  access-key: loggate
+  secret-key: loggate-local-dev
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: s3-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+  labels:
+    app.kubernetes.io/name: s3
+spec:
+  replicas: 1
+  # One writer on one volume: the old pod must be gone before the new one mounts it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: s3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: s3
+    spec:
+      containers:
+        - name: versitygw
+          image: versity/versitygw:v1.8.0
+          imagePullPolicy: IfNotPresent
+          args: ["--port", ":7070", "posix", "/data"]
+          env:
+            - name: ROOT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: s3-root, key: access-key }
+            - name: ROOT_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: s3-root, key: secret-key }
+          ports:
+            - name: s3
+              containerPort: 7070
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: s3-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+spec:
+  selector:
+    app.kubernetes.io/name: s3
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+---
+# Presigned download links are opened by the user's browser, so the endpoint
+# they are signed against has to be one a browser can reach.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: s3
+  annotations:
+    # A .zip or a part can be large; the ingress must not cut it off.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: s3.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: s3
+                port:
+                  number: 9000

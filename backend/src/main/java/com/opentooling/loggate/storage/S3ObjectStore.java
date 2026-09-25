@@ -12,7 +12,7 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 
-/** {@link ObjectStore} over anything S3-compatible, which locally is MinIO. */
+/** {@link ObjectStore} over anything S3-compatible, which locally is Versity S3 Gateway. */
 public class S3ObjectStore implements ObjectStore {
 
   private final S3Client s3;

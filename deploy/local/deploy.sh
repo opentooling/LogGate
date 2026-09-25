@@ -107,12 +107,33 @@ if [[ "${SKIP_STACK:-0}" != "1" ]]; then
     -f "$STACK/grafana-values.yaml" \
     --wait --timeout 5m
 
-  log "Installing MinIO (export artifact storage)"
-  helm upgrade --install minio minio \
-    --repo https://charts.min.io/ \
-    --namespace "$OBS_NS" \
-    -f "$STACK/minio-values.yaml" \
-    --wait --timeout 5m
+  # MinIO no longer publishes pullable images; a stack from before the switch
+  # still has its release, which is removed rather than left beside the new one.
+  if helm status minio -n "$OBS_NS" >/dev/null 2>&1; then
+    log "Removing the old MinIO release"
+    helm uninstall minio -n "$OBS_NS" --wait >/dev/null
+  fi
+
+  log "Installing the object store (Versity S3 Gateway)"
+  kubectl apply -n "$OBS_NS" -f "$STACK/object-store.yaml" >/dev/null
+  kubectl rollout status deploy/s3 -n "$OBS_NS" --timeout=5m
+
+  # The bucket, created through the S3 API itself so nothing else has to be
+  # pulled to do it. Retried while the ingress picks up the new host.
+  S3_KEY="$(kubectl get secret s3-root -n "$OBS_NS" -o jsonpath='{.data.access-key}' | base64 --decode)"
+  S3_SECRET="$(kubectl get secret s3-root -n "$OBS_NS" -o jsonpath='{.data.secret-key}' | base64 --decode)"
+  bucket=""
+  for _ in $(seq 1 30); do
+    bucket="$(curl -s -o /dev/null -w '%{http_code}' --aws-sigv4 "aws:amz:us-east-1:s3" \
+      --user "$S3_KEY:$S3_SECRET" -X PUT "http://s3.localtest.me:${HOST_PORT}/loggate-exports")"
+    # 200 when created; 409 when it already exists, which is as good.
+    [[ "$bucket" == "200" || "$bucket" == "409" ]] && break
+    sleep 2
+  done
+  if [[ "$bucket" != "200" && "$bucket" != "409" ]]; then
+    echo "Could not create the export bucket (last answer: HTTP $bucket)" >&2
+    exit 1
+  fi
 else
   log "SKIP_STACK=1 — leaving the observability stack alone"
 fi
@@ -166,7 +187,7 @@ LogGate    http://loggate.localtest.me:${HOST_PORT}
 Keycloak   http://auth.localtest.me:${HOST_PORT}        (admin / admin)
 Grafana    http://grafana.localtest.me:${HOST_PORT}      (admin / loggate; dashboard "LogGate")
 Prometheus http://prometheus.localtest.me:${HOST_PORT}
-MinIO      http://minio.localtest.me:${HOST_PORT}        (loggate / loggate-local-dev)
+S3         http://s3.localtest.me:${HOST_PORT}           (S3 API; loggate / loggate-local-dev)
 
 Seed a log-producing workload:
   deploy/local/seed-logs.sh

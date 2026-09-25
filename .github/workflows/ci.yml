@@ -50,7 +50,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      # Unit and integration tests (PostgreSQL and MinIO in Testcontainers),
+      # Unit and integration tests (PostgreSQL and an S3 server in Testcontainers),
       # the 95% line and branch coverage gate, and the UI's own tests and build.
       - name: Check
         run: ./gradlew check
@@ -244,12 +244,6 @@ jobs:
 
   e2e:
     name: End-to-end on k3d
-    # Switched off for now: MinIO no longer publishes its images (quay.io
-    # answers 401, Docker Hub has none), so the local stack cannot be pulled on
-    # a fresh runner. Run it locally with deploy/local/deploy.sh and the e2e/
-    # suites until the stack's object store is replaced, then delete this line
-    # and put e2e back in publish-image's needs.
-    if: false
     # Only worth a real cluster once the cheaper checks pass.
     needs: [build, chart]
     runs-on: ubuntu-24.04
@@ -257,7 +251,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Loki, Grafana, MinIO, Keycloak, PostgreSQL and two replicas of the
+      # Loki, Grafana, an S3 server, Keycloak, PostgreSQL and two replicas of the
       # application, plus the build, do not fit comfortably in a stock runner's
       # free disk. Toolchains this job never uses are the cheapest room to make.
       - name: Make room on the runner
@@ -392,11 +386,10 @@ jobs:
 
   publish-image:
     name: Publish image to GHCR
-    # Only from main, and only a commit that passed every check. The end-to-end
-    # run belongs here too, and is left out only while it is switched off: a
-    # skipped job in needs would skip publishing as well.
+    # Only from main, and only a commit that passed every check, including the
+    # end-to-end run on a real cluster.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build, chart, architecture]
+    needs: [build, chart, architecture, e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

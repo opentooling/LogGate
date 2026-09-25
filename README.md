@@ -69,7 +69,7 @@ allowed to be unbounded.
   every bean is declared in a configuration class under `config`
 - **PostgreSQL 17** via `JdbcClient` with hand-written SQL; schema in
   **Liquibase** changelogs
-- **S3 / MinIO** for export artifacts
+- **S3-compatible storage** for export artifacts (Versity S3 Gateway locally)
 - **Keycloak** for OIDC, **Kubernetes API** for namespace labels
 - **JUnit 5** with a 95% line *and* branch coverage gate, **Testcontainers** for
   integration tests, **Playwright** for end-to-end
@@ -94,7 +94,8 @@ deploy/local/deploy.sh
 ```
 
 Creates the `loggate` k3d cluster if needed, installs Loki, Alloy, Prometheus
-(with kube-state-metrics), Grafana and MinIO, builds and imports the app image,
+(with kube-state-metrics), Grafana and an S3 server (Versity S3 Gateway), builds
+and imports the app image,
 installs the chart and runs `helm test`.
 
 | URL                          | What                              |
@@ -103,13 +104,13 @@ installs the chart and runs `helm test`.
 | http://auth.localtest.me:8088     | Keycloak (realm `loggate`)   |
 | http://grafana.localtest.me:8088  | Grafana (`admin` / `loggate`), dashboard "LogGate" |
 | http://prometheus.localtest.me:8088 | Prometheus                 |
-| http://minio.localtest.me:8088    | MinIO console                |
+| http://s3.localtest.me:8088       | The S3 API (`loggate` / `loggate-local-dev`) |
 
 The cluster binds host port 8088 by default (`HOST_PORT` to change it), so it
 coexists with other k3d clusters already holding port 80.
 
 Re-running the script after a code change rebuilds and upgrades in place; pass
-`SKIP_STACK=1` to leave Loki, Alloy, Prometheus, Grafana and MinIO untouched.
+`SKIP_STACK=1` to leave Loki, Alloy, Prometheus, Grafana and the S3 server untouched.
 
 ### Installing the published chart
 
@@ -194,7 +195,7 @@ across replicas and restarts, and works where no metrics stack is installed.
 ```bash
 e2e/auth-flow.sh        # authentication and the authorization matrix
 e2e/export-estimate.sh  # export sizing and the published quota
-e2e/export-run.sh       # an export run to completion, with parts in MinIO
+e2e/export-run.sh       # an export run to completion, with its parts in storage
 e2e/retention.sh        # download links expire; retention deletes the data
 e2e/pods-and-metrics.sh # pods listed from kube-state-metrics, activity, the Grafana dashboard
 e2e/open-access.sh      # the cluster pin, and open mode: role, discovery, exact export

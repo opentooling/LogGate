@@ -42,7 +42,7 @@ loki:
   clusterLabel: cluster
 
 storage:
-  endpoint: http://minio.observability.svc.cluster.local:9000
+  endpoint: http://s3.observability.svc.cluster.local:9000
   # What a browser can reach. Presigned URLs are signed against this, so it
   # must match the host the user opens them from.
   publicEndpoint: http://s3.localtest.me:8088

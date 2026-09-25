@@ -5,7 +5,7 @@
 #   2. An export's retention runs out, its files are deleted from the bucket,
 #      and the export can no longer be downloaded.
 #
-# Both are verified against the real MinIO rather than the database alone: a
+# Both are verified against the real object store rather than the database alone: a
 # row that says EXPIRED while the logs are still sitting in a bucket is exactly
 # the failure this is written to catch.
 set -uo pipefail

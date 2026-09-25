@@ -311,13 +311,13 @@ hostAliases: []
 # -- Object storage for export artifacts. Leave the keys empty to use the
 # instance's own credentials (IAM role, IRSA) instead of a secret.
 storage:
-  endpoint: http://minio.observability.svc.cluster.local:9000
+  endpoint: http://s3.observability.svc.cluster.local:9000
   region: us-east-1
   bucket: loggate-exports
   accessKey: ""
   secretKey: ""
   existingSecret: ""
-  # MinIO and ONTAP S3 address buckets by path unless DNS is set up for
+  # Self-hosted stores, ONTAP S3 among them, address buckets by path unless DNS is set up for
   # virtual-hosted buckets.
   pathStyle: true
   # -- How long a presigned download link stays valid.
