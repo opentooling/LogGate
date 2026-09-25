@@ -23,7 +23,8 @@ export function formatDuration(seconds: number): string {
   if (days) parts.push(`${days}d`);
   if (hours) parts.push(`${hours}h`);
   if (minutes && !days) parts.push(`${minutes}m`);
-  if (!parts.length) parts.push(`${seconds}s`);
+  // Measured durations arrive with fractions; nobody needs 1.6063479999s.
+  if (!parts.length) parts.push(`${Math.max(1, Math.round(seconds))}s`);
   return parts.join(" ");
 }
 

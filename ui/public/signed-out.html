@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signed out · LogGate</title>
+    <!--
+      Served without a session, and loads nothing that needs one: the
+      application signs in whoever opens it, which is the one thing this page
+      must not do.
+    -->
+    <link rel="stylesheet" href="/site.css" />
+    <script src="/theme-boot.js"></script>
+  </head>
+  <body>
+    <header class="site-head">
+      <a class="brand" href="/welcome"><span class="mark" aria-hidden="true">L</span>LogGate</a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="/guide">Guide</a>
+      </nav>
+    </header>
+    <main class="center">
+      <div class="panel">
+        <span class="tick" aria-hidden="true">✓</span>
+        <h1>You're signed out</h1>
+        <div class="cta">
+          <a class="button primary" href="/oauth2/authorization/keycloak">Sign in again</a>
+          <a class="button" href="/guide">Read the guide</a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

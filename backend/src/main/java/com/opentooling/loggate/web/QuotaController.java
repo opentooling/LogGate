@@ -1,14 +1,15 @@
 package com.opentooling.loggate.web;
 
-import com.opentooling.loggate.authz.NamespaceAccess;
-import com.opentooling.loggate.quota.QuotaGuard;
-import com.opentooling.loggate.quota.QuotaReport;
-import com.opentooling.loggate.security.AuthenticatedUser;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.opentooling.loggate.authz.NamespaceAccess;
+import com.opentooling.loggate.quota.QuotaGuard;
+import com.opentooling.loggate.quota.QuotaReport;
+import com.opentooling.loggate.security.AuthenticatedUser;
 
 /** What the caller is allowed to spend, and what is left of it. */
 @RestController

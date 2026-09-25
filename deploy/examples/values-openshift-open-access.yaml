@@ -119,6 +119,10 @@ storage:
   checksums: whenRequired
   presignedUrlLifetime: 30m
   # ONTAP presents the SVM's certificate, commonly issued by an internal CA.
+  # Either a Secret or a ConfigMap. To use the cluster's trusted bundle
+  # instead, create an empty ConfigMap labelled
+  # config.openshift.io/inject-trusted-cabundle=true and set
+  # configMapName to it with key ca-bundle.crt.
   caCertificate:
     secretName: storage-ca
     key: ca.crt
@@ -179,13 +183,16 @@ networkPolicy:
           protocol: TCP
 
 # -- Keycloak -------------------------------------------------------------------
-# On the "loggate" client (confidential, standard flow, redirect URI
-# https://loggate.apps.hub.example.com/*):
+# On the "loggate" client (confidential, standard flow, redirect URI and
+# valid post logout redirect URI both https://loggate.apps.hub.example.com/*;
+# the second is where signing out returns to):
 #
-#   1. Client roles: create "export-logs".
+#   1. Client roles: create "export-logs", and "loggate-admin" for the
+#      Activity and Audit pages (access.adminRole).
 #   2. Groups: create "log-exporters"; Role mapping > assign "export-logs" from
-#      the loggate client.
-#   3. Add the people who may export to "log-exporters".
+#      the loggate client. Likewise a group for "loggate-admin".
+#   3. Add the people who may export to "log-exporters", and the people who
+#      audit downloads to the admin group.
 #
 # Keycloak puts client roles in the access token by default (the "roles"
 # client scope), including roles inherited through groups, which is where
@@ -194,6 +201,11 @@ networkPolicy:
 #   kcadm.sh create clients/$CLIENT/roles -r platform -s name=export-logs
 #   kcadm.sh create groups -r platform -s name=log-exporters
 #   kcadm.sh add-roles -r platform --gname log-exporters --cclientid loggate --rolename export-logs
+#   kcadm.sh create clients/$CLIENT/roles -r platform -s name=loggate-admin
+#   kcadm.sh create groups -r platform -s name=loggate-admins
+#   kcadm.sh add-roles -r platform --gname loggate-admins --cclientid loggate --rolename loggate-admin
+#   kcadm.sh update clients/$CLIENT -r platform \
+#     -s 'attributes."post.logout.redirect.uris"=https://loggate.apps.hub.example.com/*'
 #
 # -- Secrets --------------------------------------------------------------------
 #   oc create secret generic loggate-oidc    --from-literal=client-secret=...

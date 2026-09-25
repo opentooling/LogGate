@@ -55,7 +55,7 @@ class ExportEstimatorTest {
     assertThat(estimate.bytesByNamespace()).containsEntry("platform-dev", 24L * 1024 * MB);
     assertThat(estimate.windowSeconds()).isEqualTo(900);
     assertThat(estimate.windowCount()).isEqualTo(96);
-    assertThat(estimate.selector()).isEqualTo("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}");
+    assertThat(estimate.selector()).isEqualTo("{namespace=\"platform-dev\"} | pod=~\"api\\\\-.*\"");
   }
 
   @Test
@@ -66,8 +66,10 @@ class ExportEstimatorTest {
 
     ExportEstimate estimate = new ExportEstimator(loki, planner()).estimate(request("timeout"));
 
-    assertThat(loki.selectorsSeen()).containsExactly("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}");
-    assertThat(estimate.selector()).endsWith("|= \"timeout\"");
+    assertThat(loki.selectorsSeen()).containsExactly("{namespace=\"platform-dev\"}");
+    // The pod is matched after the stream selector, so the index sizes the
+    // namespace and the pod is judged by the sample.
+    assertThat(estimate.selector()).isEqualTo("{namespace=\"platform-dev\"} |= \"timeout\" | pod=~\"api\\\\-.*\"");
   }
 
   @Test
@@ -75,8 +77,8 @@ class ExportEstimatorTest {
     // The index cannot see inside lines, so the only honest way to say anything
     // about a filter before running is to sample and extrapolate.
     var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}", 10_000);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"} |= \"timeout\"", 500);
+    loki.sample("{namespace=\"platform-dev\"}", 10_000);
+    loki.sample("{namespace=\"platform-dev\"} |= \"timeout\" | pod=~\"api\\\\-.*\"", 500);
 
     ExportEstimate estimate = new ExportEstimator(loki, planner()).estimate(request("timeout"));
 
@@ -88,9 +90,24 @@ class ExportEstimatorTest {
   @Test
   void reportsNoFilteredEstimateWhenThereIsNoFilter() {
     var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
+    var unfiltered =
+        new ExportRequest(List.of("platform-dev"), null, null, null, FROM, FROM.plus(Duration.ofHours(24)));
 
-    assertThat(new ExportEstimator(loki, planner()).estimate(request(null)).filteredBytes())
-        .isNull();
+    assertThat(new ExportEstimator(loki, planner()).estimate(unfiltered).filteredBytes()).isNull();
+  }
+
+  @Test
+  void estimatesWhatAPodFilterWillKeep() {
+    // Pods are a label filter, invisible to the index like a line filter, so
+    // they are sampled the same way.
+    var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
+    loki.sample("{namespace=\"platform-dev\"}", 10_000);
+    loki.sample("{namespace=\"platform-dev\"} | pod=~\"api\\\\-.*\"", 2_500);
+
+    ExportEstimate estimate = new ExportEstimator(loki, planner()).estimate(request(null));
+
+    assertThat(estimate.estimatedBytes()).isEqualTo(1000 * MB);
+    assertThat(estimate.filteredBytes()).isEqualTo(250 * MB);
   }
 
   @Test
@@ -106,8 +123,8 @@ class ExportEstimatorTest {
   @Test
   void neverClaimsAFilterKeepsMoreThanEverything() {
     var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}", 100);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"} |= \"timeout\"", 250);
+    loki.sample("{namespace=\"platform-dev\"}", 100);
+    loki.sample("{namespace=\"platform-dev\"} |= \"timeout\" | pod=~\"api\\\\-.*\"", 250);
 
     assertThat(new ExportEstimator(loki, planner()).estimate(request("timeout")).filteredBytes())
         .isEqualTo(1000 * MB);
@@ -154,8 +171,8 @@ class ExportEstimatorTest {
   @Test
   void samplesTheWholeRangeWhenItIsShorterThanTheSampleWindow() {
     var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}", 400);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"} |= \"timeout\"", 100);
+    loki.sample("{namespace=\"platform-dev\"}", 400);
+    loki.sample("{namespace=\"platform-dev\"} |= \"timeout\" | pod=~\"api\\\\-.*\"", 100);
     var shortRequest =
         new ExportRequest(
             List.of("platform-dev"), "api-*", null, "timeout", FROM, FROM.plus(Duration.ofMinutes(2)));
@@ -169,7 +186,7 @@ class ExportEstimatorTest {
     // Not an unknown: the window definitely held data and the filter matched
     // none of it, which is exactly the answer the user wants.
     var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}", 400);
+    loki.sample("{namespace=\"platform-dev\"}", 400);
 
     assertThat(new ExportEstimator(loki, planner()).estimate(request("timeout")).filteredBytes())
         .isZero();
@@ -178,8 +195,8 @@ class ExportEstimatorTest {
   @Test
   void reportsNoFilteredEstimateWhenTheSampleWindowWasEmpty() {
     var loki = new FakeLokiClient().volume("platform-dev", 1000 * MB);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}", 0);
-    loki.sample("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"} |= \"timeout\"", 0);
+    loki.sample("{namespace=\"platform-dev\"}", 0);
+    loki.sample("{namespace=\"platform-dev\"} |= \"timeout\" | pod=~\"api\\\\-.*\"", 0);
 
     assertThat(new ExportEstimator(loki, planner()).estimate(request("timeout")).filteredBytes())
         .isNull();

@@ -37,7 +37,8 @@ public class ManifestBuilder {
 
     List<Manifest.Part> parts = new ArrayList<>();
     for (var window : jobs.windowSummaries(job.id())) {
-      String key = com.opentooling.loggate.storage.PartKeys.part(job.id(), window.index());
+      String key =
+          com.opentooling.loggate.storage.PartKeys.part(job.id(), window.index(), job.format());
       var artifact = byKey.get(key);
       if (artifact == null) {
         // No part for a window means the window never completed, which cannot

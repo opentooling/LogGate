@@ -82,6 +82,21 @@ loggate:
     ca-certificate: ${S3_CA_CERTIFICATE:}
   oidc:
     ca-certificate: ${OIDC_CA_CERTIFICATE:}
+  # Where pods are listed from: a Prometheus-compatible API holding one series
+  # per pod. Empty leaves the pod pattern as the only way to narrow by pod.
+  pods:
+    metrics-url: ${PODS_METRICS_URL:}
+    metric: ${PODS_METRIC:kube_pod_info}
+    pod-label: ${PODS_POD_LABEL:pod}
+    namespace-label: ${PODS_NAMESPACE_LABEL:namespace}
+    cluster-label: ${PODS_CLUSTER_LABEL:}
+    tenant-id: ${PODS_TENANT_ID:}
+    bearer-token-file: ${PODS_BEARER_TOKEN_FILE:}
+    ca-certificate: ${PODS_CA_CERTIFICATE:}
+    timeout: ${PODS_TIMEOUT:10s}
+    max-pods: ${PODS_MAX:1000}
+    # Whether pods may be matched by pattern, not only picked from the list.
+    allow-pattern: ${PODS_ALLOW_PATTERN:true}
   namespaces:
     enabled: ${NAMESPACES_ENABLED:true}
     label-key: ${TEAM_LABEL_KEY:xyz.com/team}
@@ -99,6 +114,9 @@ loggate:
     open-role: ${ACCESS_OPEN_ROLE:}
     discovery-window: ${ACCESS_DISCOVERY_WINDOW:7d}
     discovery-cache-ttl: ${ACCESS_DISCOVERY_CACHE_TTL:60s}
+    # A client role on this application's OIDC client, held directly or through
+    # a group, that opens the activity and audit pages. Blank: nobody.
+    admin-role: ${ACCESS_ADMIN_ROLE:loggate-admin}
 
 server:
   shutdown: graceful
@@ -111,6 +129,12 @@ server:
     include-stacktrace: never
 
 management:
+  # Actuator gets a port of its own, which the Service's http port, the
+  # Ingress and the Route never reach. Metrics can then be scraped without a
+  # login and still not be published to the internet. Liveness and readiness
+  # are also served on the application port as /livez and /readyz.
+  server:
+    port: ${MANAGEMENT_PORT:9090}
   endpoints:
     web:
       exposure:
@@ -119,6 +143,7 @@ management:
     health:
       probes:
         enabled: true
+        add-additional-paths: true
       show-details: never
 
 logging:

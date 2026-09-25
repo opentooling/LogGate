@@ -26,6 +26,14 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if .Values.metrics.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/path: /actuator/prometheus
+        {{- end }}
+    {{- $oidcCa := include "loggate.caSource" (dict "ca" .Values.oidc.caCertificate "name" "oidc.caCertificate") | trim }}
+    {{- $storageCa := include "loggate.caSource" (dict "ca" .Values.storage.caCertificate "name" "storage.caCertificate") | trim }}
+    {{- $podsCa := include "loggate.caSource" (dict "ca" .Values.pods.caCertificate "name" "pods.caCertificate") | trim }}
     spec:
       serviceAccountName: {{ include "loggate.fullname" . }}
       {{- with .Values.hostAliases }}
@@ -97,6 +105,8 @@ spec:
           securityContext:
             {{- include "loggate.containerSecurityContext" . | nindent 12 }}
           env:
+            - name: MANAGEMENT_PORT
+              value: {{ .Values.metrics.port | quote }}
             - name: DATABASE_URL
               value: {{ include "loggate.databaseUrl" . | quote }}
             - name: DATABASE_USER
@@ -127,9 +137,9 @@ spec:
                   name: {{ include "loggate.secretName" . }}
                   key: oidc-client-secret
                   {{- end }}
-            {{- if and .Values.oidc.caCertificate .Values.oidc.caCertificate.secretName }}
+            {{- if $oidcCa }}
             - name: OIDC_CA_CERTIFICATE
-              value: /etc/loggate/oidc-ca/{{ .Values.oidc.caCertificate.key }}
+              value: /etc/loggate/oidc-ca/{{ .Values.oidc.caCertificate.key | default "ca.crt" }}
             {{- end }}
             - name: TEAM_LABEL_KEY
               value: {{ .Values.namespaces.labelKey | quote }}
@@ -149,6 +159,8 @@ spec:
               value: {{ .Values.access.openRole | quote }}
             - name: ACCESS_DISCOVERY_WINDOW
               value: {{ .Values.access.discoveryWindow | quote }}
+            - name: ACCESS_ADMIN_ROLE
+              value: {{ .Values.access.adminRole | quote }}
             - name: CLUSTER_NAME
               value: {{ .Values.namespaces.cluster | quote }}
             - name: S3_ENDPOINT
@@ -163,9 +175,9 @@ spec:
               value: {{ .Values.storage.presignedUrlLifetime | quote }}
             - name: S3_CHECKSUMS
               value: {{ if eq .Values.storage.checksums "whenSupported" }}WHEN_SUPPORTED{{ else if eq .Values.storage.checksums "whenRequired" }}WHEN_REQUIRED{{ else }}{{ fail (printf "storage.checksums must be whenRequired or whenSupported, not %q" .Values.storage.checksums) }}{{ end }}
-            {{- if .Values.storage.caCertificate.secretName }}
+            {{- if $storageCa }}
             - name: S3_CA_CERTIFICATE
-              value: /etc/loggate/storage-ca/{{ .Values.storage.caCertificate.key }}
+              value: /etc/loggate/storage-ca/{{ .Values.storage.caCertificate.key | default "ca.crt" }}
             {{- end }}
             {{- with .Values.storage.publicEndpoint }}
             - name: S3_PUBLIC_ENDPOINT
@@ -182,6 +194,32 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.storage.existingSecret | default (include "loggate.secretName" .) }}
                   key: storage-secret-key
+            {{- end }}
+            {{- with .Values.pods }}
+            - name: PODS_METRICS_URL
+              value: {{ .metricsUrl | quote }}
+            - name: PODS_METRIC
+              value: {{ .metric | quote }}
+            - name: PODS_POD_LABEL
+              value: {{ .podLabel | quote }}
+            - name: PODS_NAMESPACE_LABEL
+              value: {{ .namespaceLabel | quote }}
+            - name: PODS_CLUSTER_LABEL
+              value: {{ .clusterLabel | quote }}
+            - name: PODS_TENANT_ID
+              value: {{ .tenantId | quote }}
+            - name: PODS_MAX
+              value: {{ .maxPods | quote }}
+            - name: PODS_ALLOW_PATTERN
+              value: {{ .allowPattern | quote }}
+            {{- if .bearerToken.serviceAccount }}
+            - name: PODS_BEARER_TOKEN_FILE
+              value: /var/run/secrets/kubernetes.io/serviceaccount/token
+            {{- end }}
+            {{- end }}
+            {{- if $podsCa }}
+            - name: PODS_CA_CERTIFICATE
+              value: /etc/loggate/pods-ca/{{ .Values.pods.caCertificate.key | default "ca.crt" }}
             {{- end }}
             - name: WORKERS_ENABLED
               value: {{ .Values.execution.enabled | quote }}
@@ -219,10 +257,13 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # Health and metrics. Not behind the Ingress or Route.
+            - name: management
+              containerPort: {{ .Values.metrics.port }}
           startupProbe:
             httpGet:
               path: /actuator/health/readiness
-              port: http
+              port: management
             periodSeconds: 3
             # Generous on purpose. Startup runs Liquibase and resolves the OIDC
             # issuer, and on a contended cluster that can take minutes. Killing
@@ -232,12 +273,12 @@ spec:
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
-              port: http
+              port: management
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: http
+              port: management
             periodSeconds: 20
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -245,34 +286,35 @@ spec:
             # readOnlyRootFilesystem is on, so the JVM needs a writable tmp.
             - name: tmp
               mountPath: /tmp
-            {{- if .Values.storage.caCertificate.secretName }}
+            {{- if $storageCa }}
             - name: storage-ca
               mountPath: /etc/loggate/storage-ca
               readOnly: true
             {{- end }}
-            {{- if and .Values.oidc.caCertificate .Values.oidc.caCertificate.secretName }}
+            {{- if $oidcCa }}
             - name: oidc-ca
               mountPath: /etc/loggate/oidc-ca
+              readOnly: true
+            {{- end }}
+            {{- if $podsCa }}
+            - name: pods-ca
+              mountPath: /etc/loggate/pods-ca
               readOnly: true
             {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- if .Values.storage.caCertificate.secretName }}
+        {{- with $storageCa }}
         - name: storage-ca
-          secret:
-            secretName: {{ .Values.storage.caCertificate.secretName }}
-            items:
-              - key: {{ .Values.storage.caCertificate.key }}
-                path: {{ .Values.storage.caCertificate.key }}
+          {{- . | nindent 10 }}
         {{- end }}
-        {{- if and .Values.oidc.caCertificate .Values.oidc.caCertificate.secretName }}
+        {{- with $oidcCa }}
         - name: oidc-ca
-          secret:
-            secretName: {{ .Values.oidc.caCertificate.secretName }}
-            items:
-              - key: {{ .Values.oidc.caCertificate.key }}
-                path: {{ .Values.oidc.caCertificate.key }}
+          {{- . | nindent 10 }}
+        {{- end }}
+        {{- with $podsCa }}
+        - name: pods-ca
+          {{- . | nindent 10 }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

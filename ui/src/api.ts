@@ -16,9 +16,79 @@ export type Me = {
   namespacesOptional: boolean;
   /** Clusters on offer; empty when logs are not told apart by cluster. */
   clusters: string[];
+  /**
+   * Namespaces on offer. Empty in open mode with clusters to choose from:
+   * those are listed per cluster, once clusters are chosen.
+   */
   namespaces: Namespace[];
   /** Why the caller can export nothing, or null when they can. */
   barrier: string | null;
+  /** Whether pods can be picked from a list. */
+  podsListable: boolean;
+  /** Whether pods may be matched by pattern; an operator can switch it off. */
+  podPatternAllowed: boolean;
+  /** Whether the caller may see the Activity and Audit pages. */
+  admin: boolean;
+};
+
+export type DownloadAction = "DOWNLOAD_LINKS_ISSUED" | "DOWNLOAD_SCRIPT_ISSUED" | "ARCHIVE_DOWNLOADED";
+
+/** One hand-over of an export's data, as the audit trail recorded it. */
+export type DownloadEvent = {
+  id: number;
+  at: string;
+  subject: string;
+  name: string;
+  action: DownloadAction;
+  jobId: string | null;
+  namespaces: string[];
+  clusters: string[];
+  files: number | null;
+  bytes: number | null;
+  sourceIp: string | null;
+};
+
+export type DownloadAudit = {
+  page: { events: DownloadEvent[]; next: number | null };
+  totals: Partial<Record<DownloadAction, number>>;
+};
+
+export type Pod = { namespace: string; name: string };
+
+/** The pods that ran in some namespaces over some range. */
+export type PodListing = { available: boolean; pods: Pod[]; truncated: boolean };
+
+export type ActivityPeriod = "24h" | "7d" | "30d";
+
+export type ActivityPoint = {
+  at: string;
+  submitted: number;
+  refused: number;
+  ready: number;
+  failed: number;
+  cancelled: number;
+  bytesExported: number;
+};
+
+/** How exporting has gone across the installation. Counts only. */
+export type ActivityReport = {
+  from: string;
+  to: string;
+  bucketSeconds: number;
+  now: { activeExports: number; windowsPending: number; windowsRunning: number };
+  totals: {
+    submitted: number;
+    refused: number;
+    denied: number;
+    ready: number;
+    failed: number;
+    cancelled: number;
+    bytesExported: number;
+    entriesExported: number;
+  };
+  failures: Record<string, number>;
+  durationSeconds: { p50: number | null; p95: number | null; max: number | null };
+  series: ActivityPoint[];
 };
 
 export type JobState =
@@ -52,6 +122,14 @@ export type ExportJob = {
   finishedAt: string | null;
   expiresAt: string | null;
   progress: number;
+  /**
+   * Whether the caller may take its files now. False for a finished export
+   * whose namespaces the caller can no longer read, for instance one made in
+   * another access mode.
+   */
+  downloadable: boolean;
+  /** What its files hold. */
+  format: OutputFormat;
 };
 
 export type Estimate = {
@@ -94,12 +172,18 @@ export type Download = {
   url: string;
 };
 
+/** What an export's files hold. */
+export type OutputFormat = "JSON" | "RAW";
+
 export type ExportRequest = {
   clusters?: string[];
   namespaces: string[];
+  /** Pods picked by name; not with podPattern. */
+  pods?: string[];
   podPattern?: string;
   containerPattern?: string;
   lineFilter?: string;
+  format?: OutputFormat;
   from: string;
   to: string;
 };
@@ -179,6 +263,32 @@ export const api = {
       "/api/namespaces" +
         (clusters.length ? "?" + clusters.map((c) => `cluster=${encodeURIComponent(c)}`).join("&") : ""),
     ),
+  pods: (clusters: string[], namespaces: string[], from: string, to: string) =>
+    call<PodListing>(
+      "/api/pods?" +
+        new URLSearchParams([
+          ...clusters.map((c): [string, string] => ["cluster", c]),
+          ...namespaces.map((n): [string, string] => ["namespace", n]),
+          ["from", from],
+          ["to", to],
+        ]).toString(),
+    ),
+  /**
+   * Signs out of LogGate and of the identity provider. Answered with where to
+   * go next, the provider's end-session page, because a fetch cannot follow a
+   * redirect to another origin itself.
+   */
+  signOut: () =>
+    call<{ redirect: string }>("/logout", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    }),
+  downloadAudit: (before: number | null, limit = 50) =>
+    call<DownloadAudit>(
+      `/api/audit/downloads?limit=${limit}` + (before === null ? "" : `&before=${before}`),
+    ),
+  activity: (period: ActivityPeriod) =>
+    call<ActivityReport>(`/api/activity?period=${encodeURIComponent(period)}`),
   estimate: (request: ExportRequest) =>
     call<Sizing>("/api/exports/estimate", {
       method: "POST",

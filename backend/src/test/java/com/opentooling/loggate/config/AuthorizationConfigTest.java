@@ -30,8 +30,10 @@ class AuthorizationConfigTest {
         TestProperties.quotas(),
         TestProperties.execution(),
         TestProperties.storage(),
-        new LogGateProperties.Access(mode, role, Duration.ofDays(7), Duration.ofSeconds(60)),
-        TestProperties.oidc());
+        new LogGateProperties.Access(
+            mode, role, Duration.ofDays(7), Duration.ofSeconds(60), "loggate-admin"),
+        TestProperties.oidc(),
+        TestProperties.pods());
   }
 
   private static Object build(LogGateProperties properties) {

@@ -52,6 +52,10 @@ class ExportControllerTest {
   @MockitoBean private QuotaGuard quotas;
   @MockitoBean private ExportService exports;
   @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
+  @MockitoBean private com.opentooling.loggate.pods.PodSource podSource;
+  @MockitoBean private com.opentooling.loggate.activity.ActivityRepository activityRepository;
+  @MockitoBean private com.opentooling.loggate.audit.AuditService auditService;
+  @MockitoBean private com.opentooling.loggate.audit.AuditLog auditLog;
 
   private static OidcLoginRequestPostProcessor alice() {
     return oidcLogin()
@@ -159,6 +163,24 @@ class ExportControllerTest {
                     """))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("the export range must end after it starts"));
+
+    verify(authorization, never()).check(any(), any(), any(), any());
+  }
+
+  @Test
+  void rejectsPodsPickedAndMatchedAtOnce() throws Exception {
+    mvc.perform(
+            post("/api/exports/estimate")
+                .with(alice())
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"namespaces":["platform-dev"], "pods":["api-1"], "podPattern":"api-*",
+                     "from":"2026-09-20T00:00:00Z","to":"2026-09-20T01:00:00Z"}
+                    """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("pick pods or give a pod pattern, not both"));
 
     verify(authorization, never()).check(any(), any(), any(), any());
   }
@@ -327,11 +349,38 @@ class ExportControllerTest {
   @Test
   void listsTheCallersExports() throws Exception {
     when(exports.listFor(any(), org.mockito.ArgumentMatchers.anyInt()))
-        .thenReturn(List.of(job(java.util.UUID.randomUUID(), JobState.READY)));
+        .thenReturn(
+            List.of(
+                job(java.util.UUID.randomUUID(), JobState.READY),
+                job(java.util.UUID.randomUUID(), JobState.RUNNING)));
+    when(access.authorize(any(), any(), any()))
+        .thenReturn(new AccessDecision(Set.of("platform-dev"), Map.of()));
 
     mvc.perform(get("/api/exports").with(alice()))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[0].state").value("READY"));
+        // The job's own fields sit at the top level, beside the verdict.
+        .andExpect(jsonPath("$[0].state").value("READY"))
+        .andExpect(jsonPath("$[0].downloadable").value(true))
+        .andExpect(jsonPath("$[1].downloadable").value(true));
+    // Only the finished one has anything to take, so only it is checked, and
+    // without an audit row: looking is not taking.
+    verify(access, org.mockito.Mockito.times(1)).authorize(any(), any(), any());
+    verify(authorization, never()).check(any(), any(), any(), any());
+  }
+
+  @Test
+  void saysWhenAFinishedExportCanNoLongerBeDownloaded() throws Exception {
+    // Made in another access mode, or under access since lost: finished, but
+    // the download would be refused, so the page is told rather than surprised.
+    when(exports.listFor(any(), org.mockito.ArgumentMatchers.anyInt()))
+        .thenReturn(List.of(job(java.util.UUID.randomUUID(), JobState.READY)));
+    when(access.authorize(any(), any(), any()))
+        .thenReturn(
+            new AccessDecision(Set.of(), Map.of("checkout-prod", DenialReason.NOT_A_GROUP_MEMBER)));
+
+    mvc.perform(get("/api/exports").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].downloadable").value(false));
   }
 
   @Test
@@ -388,6 +437,21 @@ class ExportControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].name").value("manifest.json"))
         .andExpect(jsonPath("$[0].url").value("https://storage/x"));
+
+    // Handing out a link is handing out the data, so it is audited as such,
+    // with what the export was rather than only a pointer to it.
+    org.mockito.ArgumentCaptor<Map<String, Object>> detail = org.mockito.ArgumentCaptor.captor();
+    verify(auditService)
+        .record(
+            org.mockito.ArgumentMatchers.eq("alice-subject"),
+            org.mockito.ArgumentMatchers.eq(com.opentooling.loggate.audit.AuditAction.DOWNLOAD_LINKS_ISSUED),
+            org.mockito.ArgumentMatchers.eq(id),
+            detail.capture(),
+            any());
+    org.assertj.core.api.Assertions.assertThat(detail.getValue())
+        .containsEntry("name", "alice")
+        .containsEntry("files", 1)
+        .containsKeys("namespaces", "clusters", "bytes");
   }
 
   @Test
@@ -415,6 +479,8 @@ class ExportControllerTest {
         .andExpect(status().isForbidden());
 
     verify(delivery, never()).downloadsFor(any());
+    // A refused download handed nothing over; the refusal is audited by the gate.
+    verify(auditService, never()).record(any(), any(), any(java.util.UUID.class), any(), any());
   }
 
   @Test
@@ -439,6 +505,13 @@ class ExportControllerTest {
         .andExpect(
             org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
                 .string("Content-Disposition", "attachment; filename=\"loggate-" + id + "-download.sh\""));
+    verify(auditService)
+        .record(
+            any(),
+            org.mockito.ArgumentMatchers.eq(com.opentooling.loggate.audit.AuditAction.DOWNLOAD_SCRIPT_ISSUED),
+            org.mockito.ArgumentMatchers.eq(id),
+            any(),
+            any());
   }
 
   @Test
@@ -459,6 +532,16 @@ class ExportControllerTest {
         .andExpect(
             org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
                 .string("Content-Disposition", "attachment; filename=\"loggate-" + id + ".zip\""));
+    // Recorded as the stream starts, with no file count: it is one archive.
+    org.mockito.ArgumentCaptor<Map<String, Object>> detail = org.mockito.ArgumentCaptor.captor();
+    verify(auditService)
+        .record(
+            any(),
+            org.mockito.ArgumentMatchers.eq(com.opentooling.loggate.audit.AuditAction.ARCHIVE_DOWNLOADED),
+            org.mockito.ArgumentMatchers.eq(id),
+            detail.capture(),
+            any());
+    org.assertj.core.api.Assertions.assertThat(detail.getValue()).doesNotContainKey("files");
   }
 
   @Test

@@ -1,16 +1,17 @@
 package com.opentooling.loggate.authz;
 
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import com.opentooling.loggate.export.ExportRequest;
 import com.opentooling.loggate.loki.LokiException;
 import com.opentooling.loggate.namespaces.LokiDirectory;
 import com.opentooling.loggate.namespaces.NamespaceInfo;
 import com.opentooling.loggate.quota.BudgetHolder;
 import com.opentooling.loggate.security.AuthenticatedUser;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Every namespace Loki holds logs for, to anyone holding a role.

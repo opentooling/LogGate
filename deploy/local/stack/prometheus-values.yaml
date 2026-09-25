@@ -1,0 +1,50 @@
+# Prometheus for the local stack: it scrapes LogGate's metrics for the Grafana
+# dashboard, and kube-state-metrics' kube_pod_info is where LogGate lists pods
+# from. Only what those two need is switched on.
+alertmanager:
+  enabled: false
+prometheus-pushgateway:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+
+kube-state-metrics:
+  enabled: true
+  # Scraped by the job below instead of by annotation, so that its series
+  # carry the cluster label that LogGate matches pods on.
+  prometheusScrape: false
+  # kube_pod_info is all LogGate reads; the rest would only cost memory.
+  collectors:
+    - pods
+
+server:
+  global:
+    scrape_interval: 30s
+  retention: 2d
+  persistentVolume:
+    enabled: false
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - prometheus.localtest.me
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+
+# LogGate pods are found by the chart's own prometheus.io/* annotations, via
+# the default kubernetes-pods job. kube-state-metrics gets a job of its own,
+# labelled with this cluster's name exactly as Alloy labels its logs, so a pod
+# listing filtered by cluster matches.
+extraScrapeConfigs: |
+  - job_name: kube-state-metrics
+    honor_labels: true
+    static_configs:
+      - targets:
+          - prometheus-kube-state-metrics.observability.svc.cluster.local:8080
+    relabel_configs:
+      - target_label: cluster
+        replacement: k3d-loggate

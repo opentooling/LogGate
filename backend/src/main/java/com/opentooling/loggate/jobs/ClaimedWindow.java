@@ -23,4 +23,5 @@ public record ClaimedWindow(
     String selector,
     long byteLimit,
     long jobBytesWritten,
-    int attempts) {}
+    int attempts,
+    com.opentooling.loggate.export.OutputFormat format) {}

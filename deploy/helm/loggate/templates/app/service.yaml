@@ -11,6 +11,11 @@ spec:
     - name: http
       port: {{ .Values.service.port }}
       targetPort: http
+    # Health and Prometheus metrics. In-cluster only: the Ingress and Route
+    # send traffic to the http port alone.
+    - name: management
+      port: {{ .Values.metrics.port }}
+      targetPort: management
   selector:
     {{- include "loggate.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: app

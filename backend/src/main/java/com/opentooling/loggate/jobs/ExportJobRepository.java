@@ -38,10 +38,10 @@ public class ExportJobRepository {
                   """
                   INSERT INTO export_job (
                     id, requested_by, requested_by_name, requested_by_groups, state,
-                    namespaces, clusters, teams, pod_pattern, container_pattern, line_filter,
-                    selector, time_from, time_to, estimated_bytes, byte_limit, window_seconds,
-                    windows_total)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    namespaces, clusters, teams, pods, pod_pattern, container_pattern,
+                    line_filter, selector, time_from, time_to, estimated_bytes, byte_limit,
+                    window_seconds, windows_total, format)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                   """)
               .param(id)
               .param(job.requestedBy())
@@ -51,6 +51,7 @@ public class ExportJobRepository {
               .param(job.request().namespaces().toArray(String[]::new))
               .param(job.request().clusters().toArray(String[]::new))
               .param(job.teams().toArray(String[]::new))
+              .param(job.request().pods().toArray(String[]::new))
               .param(job.request().podPattern())
               .param(job.request().containerPattern())
               .param(job.request().lineFilter())
@@ -61,6 +62,7 @@ public class ExportJobRepository {
               .param(job.byteLimit())
               .param((int) job.windowSeconds())
               .param(windows.size())
+              .param(job.request().format().name())
               .update();
 
           for (ExportWindow window : windows) {
@@ -109,7 +111,8 @@ public class ExportJobRepository {
             RETURNING w.job_id, w.idx, w.window_from, w.window_to, w.attempts,
                       (SELECT j.selector FROM export_job j WHERE j.id = w.job_id) AS selector,
                       (SELECT j.byte_limit FROM export_job j WHERE j.id = w.job_id) AS byte_limit,
-                      (SELECT j.bytes_written FROM export_job j WHERE j.id = w.job_id) AS bytes_written
+                      (SELECT j.bytes_written FROM export_job j WHERE j.id = w.job_id) AS bytes_written,
+                      (SELECT j.format FROM export_job j WHERE j.id = w.job_id) AS format
             """)
         .param("owner", owner)
         .param("leaseSeconds", lease.toSeconds())
@@ -123,7 +126,8 @@ public class ExportJobRepository {
                     rs.getString("selector"),
                     rs.getLong("byte_limit"),
                     rs.getLong("bytes_written"),
-                    rs.getInt("attempts")))
+                    rs.getInt("attempts"),
+                    com.opentooling.loggate.export.OutputFormat.valueOf(rs.getString("format"))))
         .optional();
   }
 
@@ -368,7 +372,7 @@ public class ExportJobRepository {
       SELECT id, requested_by, state, failure_code, failure_detail, namespaces, selector,
              time_from, time_to, estimated_bytes, byte_limit, windows_total, windows_done,
              bytes_written, entries_written, cancel_requested, created_at, finished_at,
-             expires_at, clusters
+             expires_at, clusters, format
         FROM export_job
       """;
 
@@ -395,7 +399,8 @@ public class ExportJobRepository {
         rs.getTimestamp("created_at").toInstant(),
         finished == null ? null : finished.toInstant(),
         expires == null ? null : expires.toInstant(),
-        List.of((String[]) rs.getArray("clusters").getArray()));
+        List.of((String[]) rs.getArray("clusters").getArray()),
+        com.opentooling.loggate.export.OutputFormat.valueOf(rs.getString("format")));
   }
 
   /** Records an artifact belonging to a job. Replaces any earlier row for the same key. */

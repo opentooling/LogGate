@@ -323,4 +323,24 @@ class ExportJobRepositoryTest {
   private UUID firstJobId() {
     return db.sql("SELECT id FROM export_job LIMIT 1").query(UUID.class).single();
   }
+
+  @Test
+  void keepsTheChosenFormatWithTheJobAndItsWindows() {
+    var request =
+        new ExportRequest(
+            List.of("platform-dev"), null, null, null, FROM, FROM.plus(Duration.ofHours(1)),
+            List.of(), List.of(), com.opentooling.loggate.export.OutputFormat.RAW);
+    UUID id =
+        repository.create(
+            new NewJob(
+                request, "{namespace=\"platform-dev\"}", "alice-subject", "alice",
+                List.of("ad-platform-dev"), List.of("platform"), 1024, Long.MAX_VALUE, 3600),
+            List.of(new ExportWindow(0, FROM, FROM.plus(Duration.ofHours(1)))));
+
+    assertThat(repository.find(id).orElseThrow().format())
+        .isEqualTo(com.opentooling.loggate.export.OutputFormat.RAW);
+    // The worker learns it from the window it claims, and names the part for it.
+    assertThat(repository.claimNext("worker", LEASE).orElseThrow().format())
+        .isEqualTo(com.opentooling.loggate.export.OutputFormat.RAW);
+  }
 }

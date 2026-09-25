@@ -24,8 +24,18 @@ echo "unauthenticated"
 code="$(curl -s -o /dev/null -w '%{http_code}' "$APP/api/me")"
 check "GET /api/me is refused with 401, not a redirect" "401" "$code"
 
-code="$(curl -s -o /dev/null -w '%{http_code}' "$APP/actuator/health")"
-check "health endpoint stays public" "200" "$code"
+code="$(curl -s -o /dev/null -w '%{http_code}' "$APP/readyz")"
+check "readiness endpoint stays public" "200" "$code"
+
+# Actuator, metrics included, lives on the management port, which the ingress
+# does not route to: through the ingress it is a login redirect or a 404,
+# never the metrics themselves.
+body="$(curl -s "$APP/actuator/prometheus")"
+if printf '%s' "$body" | grep -q '^# TYPE'; then
+  check "metrics are not published through the ingress" "hidden" "published"
+else
+  check "metrics are not published through the ingress" "hidden" "hidden"
+fi
 
 # --- alice: platform only ----------------------------------------------------
 echo

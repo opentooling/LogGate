@@ -20,6 +20,9 @@ import java.util.List;
  * @param to end of the range, exclusive
  * @param clusters clusters to export from, when Loki holds more than one;
  *     empty means every cluster the caller may read
+ * @param pods pods to export from, picked by name from a list; empty means
+ *     every pod, or those {@code podPattern} matches. Not both
+ * @param format what the files hold; JSON when not given
  */
 public record ExportRequest(
     @Size(max = 50) List<@NotEmpty String> namespaces,
@@ -28,7 +31,9 @@ public record ExportRequest(
     String lineFilter,
     @NotNull Instant from,
     @NotNull Instant to,
-    @Size(max = 20) List<@NotEmpty String> clusters) {
+    @Size(max = 20) List<@NotEmpty String> clusters,
+    @Size(max = 200) List<@NotEmpty String> pods,
+    OutputFormat format) {
 
   public ExportRequest {
     // Copied without List.copyOf, which throws on a null element: a null here
@@ -36,6 +41,8 @@ public record ExportRequest(
     // rather than the constructor failing first.
     namespaces = namespaces == null ? List.of() : unmodifiable(namespaces);
     clusters = clusters == null ? List.of() : unmodifiable(clusters);
+    pods = pods == null ? List.of() : unmodifiable(pods);
+    format = format == null ? OutputFormat.JSON : format;
   }
 
   private static List<String> unmodifiable(List<String> values) {
@@ -53,15 +60,45 @@ public record ExportRequest(
     this(namespaces, podPattern, containerPattern, lineFilter, from, to, List.of());
   }
 
+  /** A request with no pods picked by name, as every request was before they could be. */
+  public ExportRequest(
+      List<String> namespaces,
+      String podPattern,
+      String containerPattern,
+      String lineFilter,
+      Instant from,
+      Instant to,
+      List<String> clusters) {
+    this(namespaces, podPattern, containerPattern, lineFilter, from, to, clusters, List.of());
+  }
+
+  /** A request in the default format, as every request was before there was a choice. */
+  public ExportRequest(
+      List<String> namespaces,
+      String podPattern,
+      String containerPattern,
+      String lineFilter,
+      Instant from,
+      Instant to,
+      List<String> clusters,
+      List<String> pods) {
+    this(namespaces, podPattern, containerPattern, lineFilter, from, to, clusters, pods, null);
+  }
+
   /** The same request, restricted to {@code clusters}. */
   public ExportRequest withClusters(List<String> clusters) {
     return new ExportRequest(
-        namespaces, podPattern, containerPattern, lineFilter, from, to, clusters);
+        namespaces, podPattern, containerPattern, lineFilter, from, to, clusters, pods, format);
   }
 
   /** The range's duration. */
   public java.time.Duration duration() {
     return java.time.Duration.between(from, to);
+  }
+
+  /** Whether pods were picked by name and matched by pattern at once. */
+  public boolean hasPodsAndPattern() {
+    return !pods.isEmpty() && podPattern != null && !podPattern.isBlank();
   }
 
   /** Whether the range is the right way round and non-empty. */

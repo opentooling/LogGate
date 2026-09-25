@@ -29,7 +29,7 @@
       "unique-id": "loggate-api",
       "node-type": "service",
       "name": "LogGate control plane",
-      "description": "Spring Boot 4.1 / Java 25 service. Terminates the OIDC login as a backend-for-frontend, resolves which namespaces the caller may read, generates the LogQL selector server-side, sizes the request against Loki's volume API and plans it into windows, and will serve artifact downloads. Authentication, namespace authorization, the audit trail and export sizing are built; the worker, quotas and artifacts are not. Beans are declared explicitly in configuration classes under config, with component scanning switched off."
+      "description": "Spring Boot 4.1 / Java 25 service. Terminates the OIDC login as a backend-for-frontend, resolves which namespaces the caller may read, generates the LogQL selector server-side, sizes the request against Loki's volume API and plans it into windows, admits it against quotas, and serves artifact downloads, each one audited. Built. Beans are declared explicitly in configuration classes under config, with component scanning switched off. Serves /actuator (health and Prometheus metrics) on a separate management port, 9090, that the Service's http port, the Ingress and the Route never reach. Also serves the page's Activity report, read from PostgreSQL so it is exact across replicas."
     },
     {
       "unique-id": "loggate-worker",
@@ -79,7 +79,13 @@
       "unique-id": "grafana",
       "node-type": "system",
       "name": "Grafana",
-      "description": "Where teams read logs normally. Modelled because it defines LogGate's boundary: anything a team can answer with a dashboard query should not become an export job."
+      "description": "Where teams read logs normally. Modelled because it defines LogGate's boundary: anything a team can answer with a dashboard query should not become an export job. LogGate ships a dashboard for its own metrics (deploy/helm/loggate/dashboards/loggate.json), loaded by Grafana's sidecar from a ConfigMap when metrics.dashboard.enabled is set; the local stack does so."
+    },
+    {
+      "unique-id": "metrics-store",
+      "node-type": "system",
+      "name": "Prometheus-compatible metrics store",
+      "description": "Any store with the Prometheus HTTP API: Prometheus, Thanos, Mimir or OpenShift's thanos-querier. Two roles. It scrapes LogGate's metrics from the management port for the Grafana dashboard. And it is where LogGate lists pods from: a series with one entry per pod (kube-state-metrics' kube_pod_info by default; the selector and its pod, namespace and cluster labels are configuration) read through the series API, for the chosen namespaces over the export's own range. Optional: without pods.metricsUrl the pod pattern is the only way to narrow by pod. Deployed in the local stack as Prometheus with kube-state-metrics, labelling kube-state-metrics' series with the cluster name. Built."
     },
     {
       "unique-id": "kubernetes-cluster",
@@ -385,7 +391,52 @@
           }
         }
       },
-      "description": "Open access mode only: asks the label values API which clusters, and which namespaces within them, have logged recently. Answered from the index, cached briefly, and served stale rather than failing when Loki blips. It lists what may be chosen; the client role, not this list, is what grants access.",
+      "description": "Open access mode only: asks the label values API which clusters, and which namespaces within them, have logged recently. Answered from the index, cached briefly, and served stale rather than failing when Loki blips. It lists what may be chosen; the client role, not this list, is what grants access. Namespaces are asked for only once clusters are chosen, never across every cluster on page load.",
+      "protocol": "HTTPS"
+    },
+    {
+      "unique-id": "control-plane-to-metrics-store-pods",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "loggate-api"
+          },
+          "destination": {
+            "node": "metrics-store"
+          }
+        }
+      },
+      "description": "Lists the pods that ran in the chosen namespaces, and clusters, over the export's range: GET /api/v1/series with the configured selector plus namespace and cluster matchers escaped as regex literals. Authorized as an export of those namespaces would be, cached for a minute, served stale on failure. Optionally with a tenant header, a service-account bearer token and a CA of its own.",
+      "protocol": "HTTPS"
+    },
+    {
+      "unique-id": "metrics-store-scrapes-control-plane",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "metrics-store"
+          },
+          "destination": {
+            "node": "loggate-api"
+          }
+        }
+      },
+      "description": "Scrapes /actuator/prometheus on the management port, found by prometheus.io annotations or a ServiceMonitor. No session is needed because the port is never published; the NetworkPolicy admits scrapers to it alone.",
+      "protocol": "HTTP"
+    },
+    {
+      "unique-id": "grafana-to-metrics-store",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "grafana"
+          },
+          "destination": {
+            "node": "metrics-store"
+          }
+        }
+      },
+      "description": "The LogGate dashboard's queries: queue depth, submissions and refusals, outcomes by failure code, throughput, window and Loki page latency, throttling and JVM health.",
       "protocol": "HTTPS"
     }
   ],
@@ -395,17 +446,18 @@
         "repo": "https://github.com/opentooling/LogGate",
         "branch": "main",
         "commit": "uncommitted working tree",
-        "date": "2026-09-20",
+        "date": "2026-09-25",
         "id-rule": "unique-id = slugified component name (e.g. loggate-worker); stable across runs so reconcile is a diff, not a rewrite",
         "note": "Greenfield. This model is the TARGET architecture; per-node build state is in implementation-status below and flagged in node descriptions, following the convention in the METAL-X model.",
         "reconciled": "2026-09-20 after M2: no node or relationship structure changed - authentication, the namespace watch and the audit trail were already modelled as relationships. The drift was entirely in what is built versus designed, plus two deployment facts worth recording: the OIDC issuer URL must be byte-identical for browser and application, and beans are wired explicitly rather than scanned.",
         "reconciled-2026-09-20-m3": "Structure unchanged again: the control-plane-to-loki-volume and worker-to-loki-query relationships already described what M3 implemented. Two constraints were discovered by building it and are recorded in extraction-model and known-limitations.",
-        "reconciled-2026-09-21-access-modes": "Added remote-clusters, remote-clusters-to-loki and control-plane-to-loki-discovery; the Kubernetes API relationship is now team-label mode only. Removed the single-api-replica limitation, resolved when sessions moved to PostgreSQL as JSON. Recorded object storage compatibility and OpenShift support on the existing nodes."
+        "reconciled-2026-09-21-access-modes": "Added remote-clusters, remote-clusters-to-loki and control-plane-to-loki-discovery; the Kubernetes API relationship is now team-label mode only. Removed the single-api-replica limitation, resolved when sessions moved to PostgreSQL as JSON. Recorded object storage compatibility and OpenShift support on the existing nodes.",
+        "reconciled-2026-09-25-pods-and-metrics": "Added metrics-store with control-plane-to-metrics-store-pods, metrics-store-scrapes-control-plane and grafana-to-metrics-store. Pod listing moved to a metrics store because Loki can only answer it with an index scan; actuator moved to its own management port so it can be scraped without being published. No node was removed. Also: downloads audited, and the Activity and audit pages restricted to a configurable administrator role; no structural change, both live in loggate-api and loggate-postgres. Mimir compatibility verified by deploy/local/mimir-check.sh."
       }
     },
     {
       "implementation-status": {
-        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization. M4 execution: the Postgres work queue with SKIP LOCKED claims and heartbeat leases, workers streaming gzip parts to object storage, mid-window cancellation and byte caps, layered admission quotas, job progress and cancellation endpoints, and the finalizer that publishes finished jobs and purges cancelled ones. M5 delivery and UI: the manifest with per-part counts and checksums, presigned download URLs, a generated verify-as-you-go download script, a streamed ZIP that stores rather than re-deflates the parts, the retention sweeper, and the React SPA. M6 hardening: shared sessions removing the single-replica limit, export metrics and queue gauges, NetworkPolicy templates, sampled line-filter estimates, the reworked UI, and the per-team rolling daily budget.",
+        "built": "M1 foundation: bootstrap, Liquibase schema, actuator health, a JaCoCo gate at 95% LINE and BRANCH proven to fail on uncovered code, a Helm chart with extraObjects, a Jib image build with no Dockerfile, and deploy/local/deploy.sh standing up k3d with Loki, Alloy, Grafana and MinIO. M2 authentication and authorization: Keycloak OIDC as a backend-for-frontend, the namespace informer and group-template resolution, the fail-closed authorizer and the audit trail. M3 extraction engine: the Loki client with bounded retry and Retry-After handling, the glob-based selector builder, the volume-driven window planner, the paging de-duplicator, and POST /api/exports/estimate wiring them together behind authorization. M4 execution: the Postgres work queue with SKIP LOCKED claims and heartbeat leases, workers streaming gzip parts to object storage, mid-window cancellation and byte caps, layered admission quotas, job progress and cancellation endpoints, and the finalizer that publishes finished jobs and purges cancelled ones. M5 delivery and UI: the manifest with per-part counts and checksums, presigned download URLs, a generated verify-as-you-go download script, a streamed ZIP that stores rather than re-deflates the parts, the retention sweeper, and the React SPA. M6 hardening: shared sessions removing the single-replica limit, export metrics and queue gauges, NetworkPolicy templates, sampled line-filter estimates, the reworked UI, and the per-team rolling daily budget. Since M6: CA certificates from a Secret or a ConfigMap; namespaces listed only after clusters are chosen in open mode; pod listing from a Prometheus-compatible metrics store with a configurable series; a management port for metrics; a Grafana dashboard shipped with the chart; the in-app Activity page; and a redesigned export form whose pickers scale to tens of clusters. Then: download auditing with an administrators' audit page, an administrator client role gating it and the Activity page, a switch for pod patterns, and a Mimir compatibility check. Then: a per-export choice of JSON or raw output, OIDC RP-initiated sign-out, exports that can no longer be downloaded marked as such, pods matched by a label filter after the stream selector, and searchable dropdowns for long lists.",
         "designed-not-built": "Server-side assembly of the parts into one file per stream with UploadPartCopy, which is an optimisation rather than a missing capability.",
         "milestones": "M1 foundation, M2 auth and namespace authorization, M3 extraction engine, M4 queue, quotas and lifecycle, M5 delivery and UI (all done) / M6 hardening and a verified multi-gigabyte export."
       }
@@ -418,7 +470,7 @@
         "back-pressure": "Bounded concurrency per job and globally, reduced additively on sustained 429s. A large export slows itself instead of starving Grafana.",
         "quota-abort": "Bytes are counted as they are written, so a job exceeding its cap is killed mid-flight rather than discovered afterwards. This is the capability that decided the architecture (see rejected-options).",
         "page-limit-constraint": "The query page limit must exceed the number of entries that can share one nanosecond. Loki's API has no offset, so a query starting at that nanosecond returns the same first `limit` entries every time and paging cannot advance. The pager detects that it has stopped advancing and fails loudly rather than silently truncating the export.",
-        "selector-generation": "Pod and container filters are globs: every character except * and ? is escaped into a literal. That removes LogQL injection and regex denial-of-service as categories rather than defending against them case by case. Sizing uses the stream selector without the line filter, because a filter reduces what is written but not what Loki reads, and the quota should be set against what is read."
+        "selector-generation": "Pod and container filters are globs: every character except * and ? is escaped into a literal. That removes LogQL injection and regex denial-of-service as categories rather than defending against them case by case. Sizing uses the stream selector without the line filter, because a filter reduces what is written but not what Loki reads, and the quota should be set against what is read. Pods picked from the list become an alternation of regex literals; a value that is not a valid pod name is refused rather than escaped, and picking pods and giving a pattern together is refused. The pod is matched by a label filter after the stream selector rather than a matcher inside it, so it matches whether the pod is an indexed label or structured metadata; the index then sizes the namespace and the pod filter's selectivity is sampled."
       }
     },
     {
@@ -430,7 +482,8 @@
         "download-time-recheck": "Entitlement is re-evaluated when presigned URLs are minted. A 48-hour artifact must not outlive the access that produced it.",
         "group-claim-normalisation": "Keycloak emits group claims as full paths (/ad-platform-dev) unless the mapper is reconfigured, and directory-derived names vary in case. Group comparison strips the path and ignores case, so an entitlement is never lost to a leading slash.",
         "issuer-url-identity": "The issuer URL the browser is redirected to and the one the application resolves must be identical, because Keycloak puts the former in the id_token's iss and Spring validates the callback against the registered redirect_uri. Locally that means the ingress listens on the same port the browser uses and the application resolves that hostname to the ingress.",
-        "access-modes": "Two, chosen by access.mode. team-label: teams export the namespaces labelled as theirs, read from this cluster's Kubernetes API, pinned to this cluster when Loki holds several. open: every namespace Loki holds, from every cluster, to holders of one client role on LogGate's OIDC client, typically granted through a Keycloak group; namespaces become optional, none meaning all; budgets are charged to the person because there are no teams. Open mode refuses to start without a role, so it can never mean every log to every signed-in user."
+        "access-modes": "Two, chosen by access.mode. team-label: teams export the namespaces labelled as theirs, read from this cluster's Kubernetes API, pinned to this cluster when Loki holds several. open: every namespace Loki holds, from every cluster, to holders of one client role on LogGate's OIDC client, typically granted through a Keycloak group; namespaces become optional, none meaning all; budgets are charged to the person because there are no teams. Open mode refuses to start without a role, so it can never mean every log to every signed-in user.",
+        "administrators": "Holders of access.adminRole (default loggate-admin), a client role on LogGate's OIDC client read like the open-mode role but independent of it, see the Activity report and the download audit trail across everyone's exports, in either mode. A blank role makes nobody an administrator."
       }
     },
     {
@@ -458,7 +511,7 @@
       "governance": {
         "coverage": "JaCoCo gates LINE and BRANCH at 0.95, wired into `gradle check`. The gate was verified to fail on deliberately uncovered code rather than assumed to work.",
         "supply-chain": "Images are built by Jib from compiled classes — no Dockerfile and no container runtime in the build — with a fixed creation time so an unchanged tree produces a byte-identical image.",
-        "audit": "audit_event is a first-class table rather than application logs, because who exported production logs is a record that must outlive log retention."
+        "audit": "audit_event is a first-class table rather than application logs, because who exported production logs is a record that must outlive log retention. Downloads are audited by how the data left: the streamed .zip as a download, and the script and per-file presigned links as the issuing of links, since those files are fetched from object storage directly. Rows carry the export's namespaces, clusters and size so they outlive the job."
       }
     },
     {

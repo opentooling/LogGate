@@ -24,7 +24,7 @@ public final class TestProperties {
       LogGateProperties.Loki loki,
       LogGateProperties.Windows windows) {
     return new LogGateProperties(
-        namespaces, loki, windows, quotas(), execution(), storage(), access(), oidc());
+        namespaces, loki, windows, quotas(), execution(), storage(), access(), oidc(), pods());
   }
 
   /** Defaults with a different namespace section. */
@@ -35,26 +35,44 @@ public final class TestProperties {
   /** Defaults with a different quota section. */
   public static LogGateProperties withQuotas(LogGateProperties.Quotas quotas) {
     return new LogGateProperties(
-        namespaces(), loki(), windows(), quotas, execution(), storage(), access(), oidc());
+        namespaces(), loki(), windows(), quotas, execution(), storage(), access(), oidc(), pods());
   }
 
   /** Defaults with a different storage section. */
   public static LogGateProperties withStorage(LogGateProperties.Storage storage) {
     return new LogGateProperties(
-        namespaces(), loki(), windows(), quotas(), execution(), storage, access(), oidc());
+        namespaces(), loki(), windows(), quotas(), execution(), storage, access(), oidc(), pods());
   }
 
   /** Defaults with a different access section. */
   public static LogGateProperties withAccess(LogGateProperties.Access access) {
     return new LogGateProperties(
-        namespaces(), loki(), windows(), quotas(), execution(), storage(), access, oidc());
+        namespaces(), loki(), windows(), quotas(), execution(), storage(), access, oidc(), pods());
   }
 
   /** Defaults with different namespace and Loki sections, for cluster tests. */
   public static LogGateProperties withClusters(
       LogGateProperties.Namespaces namespaces, LogGateProperties.Loki loki) {
     return new LogGateProperties(
-        namespaces, loki, windows(), quotas(), execution(), storage(), access(), oidc());
+        namespaces, loki, windows(), quotas(), execution(), storage(), access(), oidc(), pods());
+  }
+
+  /** Defaults with a different pod-listing section. */
+  public static LogGateProperties withPods(LogGateProperties.Pods pods) {
+    return new LogGateProperties(
+        namespaces(), loki(), windows(), quotas(), execution(), storage(), access(), oidc(), pods);
+  }
+
+  /** Pod listing switched off, as it is by default. */
+  public static LogGateProperties.Pods pods() {
+    return pods("");
+  }
+
+  /** Pod listing from {@code metricsUrl}, with every other setting at its default. */
+  public static LogGateProperties.Pods pods(String metricsUrl) {
+    return new LogGateProperties.Pods(
+        metricsUrl, "kube_pod_info", "pod", "namespace", "", "", "", "",
+        Duration.ofSeconds(10), 1000, Duration.ofSeconds(60), true);
   }
 
   public static LogGateProperties.Oidc oidc() {
@@ -70,7 +88,8 @@ public final class TestProperties {
         LogGateProperties.AccessMode.TEAM_LABEL,
         "",
         Duration.ofDays(7),
-        Duration.ofSeconds(60));
+        Duration.ofSeconds(60),
+        "loggate-admin");
   }
 
   public static LogGateProperties.Loki loki() {

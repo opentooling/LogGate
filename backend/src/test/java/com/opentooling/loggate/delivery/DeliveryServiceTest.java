@@ -176,4 +176,19 @@ class DeliveryServiceTest {
         .isEqualTo("000007.jsonl.gz");
     assertThat(DeliveryService.manifestKey(JOB)).endsWith("/manifest.json");
   }
+
+  @Test
+  void tellsARawExportsReaderHowToReadPlainLines() {
+    ExportJob json = job();
+    ExportJob raw =
+        new ExportJob(
+            json.id(), json.requestedBy(), json.state(), json.failureCode(), json.failureDetail(),
+            json.namespaces(), json.selector(), json.from(), json.to(), json.estimatedBytes(),
+            json.byteLimit(), json.windowsTotal(), json.windowsDone(), json.bytesWritten(),
+            json.entriesWritten(), json.cancelRequested(), json.createdAt(), json.finishedAt(),
+            json.expiresAt(), json.clusters(), com.opentooling.loggate.export.OutputFormat.RAW);
+
+    assertThat(delivery.downloadScript(raw, List.of())).contains("zcat *.log.gz | less");
+    assertThat(delivery.downloadScript(json, List.of())).contains("zcat *.jsonl.gz | jq .");
+  }
 }

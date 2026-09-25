@@ -31,4 +31,26 @@ class ExportRequestTest {
     assertThat(between(FROM, FROM).hasValidRange()).isFalse();
     assertThat(between(FROM, FROM.minusSeconds(1)).hasValidRange()).isFalse();
   }
+
+  @Test
+  void knowsWhenPodsArePickedAndMatchedAtOnce() {
+    Instant from = Instant.parse("2026-09-20T00:00:00Z");
+    Instant to = from.plusSeconds(60);
+    assertThat(new ExportRequest(List.of("a"), "api-*", null, null, from, to, List.of(), List.of("api-1"))
+            .hasPodsAndPattern())
+        .isTrue();
+    assertThat(new ExportRequest(List.of("a"), " ", null, null, from, to, List.of(), List.of("api-1"))
+            .hasPodsAndPattern())
+        .isFalse();
+    assertThat(new ExportRequest(List.of("a"), null, null, null, from, to, List.of(), List.of("api-1"))
+            .hasPodsAndPattern())
+        .isFalse();
+    ExportRequest noPods = new ExportRequest(List.of("a"), "api-*", null, null, from, to, List.of(), null);
+    assertThat(noPods.pods()).isEmpty();
+    assertThat(noPods.hasPodsAndPattern()).isFalse();
+    // Narrowing to clusters keeps the pods.
+    assertThat(new ExportRequest(List.of("a"), null, null, null, from, to, List.of(), List.of("p"))
+            .withClusters(List.of("c")).pods())
+        .containsExactly("p");
+  }
 }

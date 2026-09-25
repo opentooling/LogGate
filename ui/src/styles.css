@@ -105,9 +105,12 @@ h1 {
 
 /* --- layout ------------------------------------------------------------ */
 
+/* The form is where the decisions are made, so it gets the room: a picker of
+   pills fits three to a row here where it fitted one, and the list of exports
+   beside it reads fine at the width that is left. */
 .columns {
   display: grid;
-  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -264,6 +267,13 @@ small {
 
 .chip:hover {
   border-color: var(--accent);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* --- buttons ----------------------------------------------------------- */
@@ -516,9 +526,28 @@ a {
 /* --- allowance --------------------------------------------------------- */
 
 .allowance {
-  margin-top: 1rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--line);
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.allowance-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.allowance-title {
+  font-weight: 600;
+}
+
+.allowance details {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
 }
 
 .allowance-team {
@@ -593,4 +622,637 @@ a {
   border-radius: 5px;
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* --- views ------------------------------------------------------------- */
+
+.tabs,
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.tabs button,
+.segmented button {
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  padding: 0.35rem 0.8rem;
+  border-radius: 7px;
+  font-size: 0.9rem;
+}
+
+.tabs button[aria-pressed="true"],
+.segmented button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.tabs {
+  align-self: center;
+}
+
+/* --- picker ------------------------------------------------------------ */
+
+.picker-tools {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.4rem 0 0.5rem;
+}
+
+.picker-tools .picker-filter {
+  flex: 1;
+  margin: 0;
+}
+
+.picker-tools button {
+  white-space: nowrap;
+}
+
+.picked {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.picked li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.15rem 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  font-size: 0.8rem;
+}
+
+.picked li button {
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  padding: 0 0.35rem;
+  line-height: 1.2;
+  font-size: 0.95rem;
+}
+
+.picked .picked-more {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--quiet);
+  padding-right: 0.55rem;
+}
+
+.picker-group + .picker-group {
+  margin-top: 0.6rem;
+}
+
+.picker-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.picker-group-head .quiet {
+  font-weight: 400;
+  text-transform: none;
+}
+
+.pills {
+  display: grid;
+  gap: 0.3rem;
+  /* Columns are set inline from the longest label, in ch of this size. */
+  font-size: 0.85rem;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.pill:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pill:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.pill input {
+  margin: 0;
+  flex: none;
+}
+
+.pill span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill small {
+  margin: 0;
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-waiting {
+  margin: 0.4rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--quiet);
+  font-size: 0.88rem;
+}
+
+.picker > .segmented {
+  margin: 0.4rem 0 0.5rem;
+}
+
+fieldset > .segmented {
+  margin-bottom: 0.6rem;
+}
+
+/* --- action bar -------------------------------------------------------- */
+
+/* The choice and the buttons that act on it stay in view however long the
+   pickers above make the form. */
+.actions-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin: 0.75rem -1.25rem 0;
+  padding: 0.75rem 1.25rem;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 12px 12px;
+}
+
+.scope-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--quiet);
+}
+
+.actions-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* --- activity ---------------------------------------------------------- */
+
+.activity-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.activity-head h2 {
+  margin-bottom: 0.2rem;
+}
+
+.activity-scope {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.activity-section {
+  margin: 1.4rem 0 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--quiet);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: 0.6rem;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.tile-label {
+  font-size: 0.8rem;
+  color: var(--quiet);
+}
+
+.tile-value {
+  font-size: 1.45rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile small {
+  margin: 0;
+}
+
+.tile-ok .tile-value {
+  color: var(--ok);
+}
+
+.tile-bad {
+  border-color: var(--bad);
+}
+
+.tile-bad .tile-value {
+  color: var(--bad);
+}
+
+.tile-warn {
+  border-color: var(--warn);
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 0.8rem;
+  margin-top: 1.4rem;
+}
+
+.chart {
+  margin: 0;
+  padding: 0.8rem 0.9rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.chart figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart .gridline {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart .axis {
+  fill: var(--quiet);
+  font-size: 11px;
+}
+
+.chart .hit {
+  fill: transparent;
+}
+
+.chart .hit:hover {
+  fill: var(--accent-soft);
+}
+
+.bar-ok { fill: var(--ok); }
+.bar-bad { fill: var(--bad); }
+.bar-warn { fill: var(--warn); }
+.bar-accent { fill: var(--accent); }
+.bar-quiet { fill: var(--quiet); }
+
+.legend {
+  display: flex;
+  gap: 0.75rem;
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--quiet);
+}
+
+.legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: 0.3rem;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.legend-item.tone-ok::before { background: var(--ok); }
+.legend-item.tone-bad::before { background: var(--bad); }
+.legend-item.tone-warn::before { background: var(--warn); }
+.legend-item.tone-accent::before { background: var(--accent); }
+.legend-item.tone-quiet::before { background: var(--quiet); }
+
+.reasons {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+}
+
+.reasons li + li {
+  margin-top: 0.6rem;
+}
+
+.reason-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.reasons .bar-full {
+  background: var(--bad);
+}
+
+.chart-empty {
+  margin: 1.5rem 0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+/* --- audit ------------------------------------------------------------- */
+
+.audit-tiles {
+  margin-top: 1rem;
+}
+
+.audit-filter {
+  margin: 1rem 0 0.6rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.audit-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--quiet);
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.audit-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.audit-table td small {
+  margin: 0.1rem 0 0;
+}
+
+.audit-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-table time {
+  white-space: nowrap;
+}
+
+.how {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* The one that passed every byte through LogGate stands out: it is the only
+   row that records data actually delivered rather than links handed out. */
+.how-archive_downloaded {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.cluster-chip {
+  display: inline-block;
+  margin-right: 0.35rem;
+  padding: 0 0.4rem;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.78rem;
+}
+
+/* Sign out is an action, so a button, dressed as the link it used to be. */
+.sign-out {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.format-tag {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--quiet);
+}
+
+/* --- dropdown ---------------------------------------------------------- */
+
+.dropdown {
+  position: relative;
+  margin-top: 0.4rem;
+}
+
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+}
+
+.dropdown-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.dropdown-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-empty .dropdown-value {
+  color: var(--quiet);
+}
+
+.dropdown-count {
+  font-size: 0.78rem;
+  color: var(--quiet);
+  white-space: nowrap;
+}
+
+.dropdown-caret {
+  color: var(--quiet);
+}
+
+/* Over the form rather than in it, so opening it moves nothing, and above
+   the sticky action bar. */
+.dropdown-panel {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  padding: 0.6rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+
+.dropdown-panel .picker-tools {
+  margin: 0 0 0.5rem;
+}
+
+.dropdown-list {
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0 -0.2rem;
+  padding: 0 0.2rem;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.row-option:hover,
+.row-option:has(input:focus-visible) {
+  background: var(--raised);
+}
+
+.row-option:has(input:checked) {
+  background: var(--accent-soft);
+}
+
+.row-option input {
+  margin: 0;
+  flex: none;
+}
+
+.row-option span {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-option small {
+  margin: 0;
+}
+
+.dropdown-list .picker-group + .picker-group {
+  margin-top: 0.4rem;
+}
+
+.dropdown-list .picker-group-head {
+  padding: 0.25rem 0.4rem 0.1rem;
+  margin: 0;
+}
+
+.dropdown-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.dropdown-foot button {
+  padding: 0.3rem 0.8rem;
+}
+
+.dropdown + small,
+.dropdown ~ small {
+  margin-top: 0.35rem;
+}
+
+.dropdown .picked {
+  margin: 0.45rem 0 0;
 }

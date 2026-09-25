@@ -28,13 +28,24 @@ public class AuditService {
 
   /** Records one auditable action. */
   public void record(String actor, AuditAction action, Map<String, Object> detail, String sourceIp) {
+    record(actor, action, null, detail, sourceIp);
+  }
+
+  /** Records one auditable action about one export, indexed by it. */
+  public void record(
+      String actor,
+      AuditAction action,
+      java.util.UUID jobId,
+      Map<String, Object> detail,
+      String sourceIp) {
     db.sql(
             """
-            INSERT INTO audit_event (actor, action, detail, source_ip)
-            VALUES (?, ?, ?::jsonb, ?)
+            INSERT INTO audit_event (actor, action, job_id, detail, source_ip)
+            VALUES (?, ?, ?, ?::jsonb, ?)
             """)
         .param(actor)
         .param(action.name())
+        .param(jobId)
         .param(toJson(detail))
         .param(sourceIp)
         .update();

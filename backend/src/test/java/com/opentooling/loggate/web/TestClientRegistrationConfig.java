@@ -28,6 +28,10 @@ public class TestClientRegistrationConfig {
             .tokenUri("https://issuer.test/token")
             .jwkSetUri("https://issuer.test/jwks")
             .userNameAttributeName("preferred_username")
+            // Where signing out of the provider happens, as its discovery
+            // document would say.
+            .providerConfigurationMetadata(
+                java.util.Map.of("end_session_endpoint", "https://issuer.test/logout"))
             .build());
   }
 }

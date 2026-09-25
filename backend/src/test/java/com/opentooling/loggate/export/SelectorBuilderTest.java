@@ -28,10 +28,50 @@ class SelectorBuilderTest {
         .isEqualTo("{namespace=~\"platform-dev|payments-dev\"}");
   }
 
+  private static ExportRequest withPods(List<String> pods, String podPattern) {
+    return new ExportRequest(
+        List.of("platform-dev"), podPattern, null, null,
+        Instant.parse("2026-09-20T00:00:00Z"), Instant.parse("2026-09-20T01:00:00Z"),
+        List.of(), pods);
+  }
+
+  @Test
+  void matchesOnePickedPodExactly() {
+    assertThat(SelectorBuilder.build(withPods(List.of("api-7d9-x2"), null)))
+        // After the stream selector, where it matches a pod carried as
+        // structured metadata as well as one carried as an indexed label.
+        .isEqualTo("{namespace=\"platform-dev\"} | pod=\"api-7d9-x2\"");
+  }
+
+  @Test
+  void matchesSeveralPickedPodsAsLiteralsSortedAndOnce() {
+    // A dot in a pod name is a literal dot, not "any character".
+    assertThat(SelectorBuilder.build(withPods(List.of("worker-0", "api.v2-1", "worker-0"), "")))
+        .isEqualTo("{namespace=\"platform-dev\"} | pod=~\"api\\\\.v2-1|worker-0\"");
+  }
+
+  @Test
+  void refusesAnythingThatIsNotAPodName() {
+    assertThatThrownBy(() -> SelectorBuilder.build(withPods(List.of("api\"}|x"), null)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("not a valid pod name");
+    java.util.ArrayList<String> withNull = new java.util.ArrayList<>();
+    withNull.add(null);
+    assertThatThrownBy(() -> SelectorBuilder.build(withPods(withNull, null)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void refusesPickedPodsAndAPatternTogether() {
+    assertThatThrownBy(() -> SelectorBuilder.build(withPods(List.of("api-1"), "api-*")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("pick pods or give a pod pattern, not both");
+  }
+
   @Test
   void addsPodAndContainerMatchers() {
     assertThat(SelectorBuilder.build(request(List.of("platform-dev"), "api-*", "app", null)))
-        .isEqualTo("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\", container=~\"app\"}");
+        .isEqualTo("{namespace=\"platform-dev\", container=~\"app\"} | pod=~\"api\\\\-.*\"");
   }
 
   @Test
@@ -53,7 +93,10 @@ class SelectorBuilderTest {
     assertThat(
             SelectorBuilder.buildStreamSelector(
                 request(List.of("platform-dev"), "api-*", null, "timeout")))
-        .isEqualTo("{namespace=\"platform-dev\", pod=~\"api\\\\-.*\"}");
+        .isEqualTo("{namespace=\"platform-dev\"}");
+    // The full query filters by line first, the cheaper of the two, then by pod.
+    assertThat(SelectorBuilder.build(request(List.of("platform-dev"), "api-*", null, "timeout")))
+        .isEqualTo("{namespace=\"platform-dev\"} |= \"timeout\" | pod=~\"api\\\\-.*\"");
   }
 
   @Test
@@ -73,9 +116,11 @@ class SelectorBuilderTest {
     String selector =
         SelectorBuilder.build(request(List.of("platform-dev"), "a\"} |= \"x", null, null));
 
-    // The quote is escaped, so the selector still has exactly one closing brace
-    // and the injected filter is inert text.
-    assertThat(selector).contains("\\\\\"").endsWith("\"}");
+    // The quote is escaped, so the stream selector is untouched and the
+    // injected filter is inert text inside the pod filter's one string.
+    assertThat(selector)
+        .isEqualTo("{namespace=\"platform-dev\"} | pod=~\"a\\\\\"\\\\}\\\\ \\\\|\\\\=\\\\ \\\\\"x\"");
+    assertThat(SelectorBuilder.streamSelectorEnd(selector)).isEqualTo(selector.indexOf('}'));
   }
 
   @Test

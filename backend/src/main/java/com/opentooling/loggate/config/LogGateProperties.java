@@ -12,6 +12,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param loki the upstream Loki read endpoint
  * @param windows how an export's time range is divided
  * @param oidc identity provider settings
+ * @param pods where pod names are listed from, since Loki cannot say
  */
 @ConfigurationProperties("loggate")
 public record LogGateProperties(
@@ -22,7 +23,8 @@ public record LogGateProperties(
     @DefaultValue Execution execution,
     @DefaultValue Storage storage,
     @DefaultValue Access access,
-    @DefaultValue Oidc oidc) {
+    @DefaultValue Oidc oidc,
+    @DefaultValue Pods pods) {
 
   /** How callers are granted namespaces. */
   public enum AccessMode {
@@ -49,12 +51,16 @@ public record LogGateProperties(
    *     clusters and namespaces to offer
    * @param discoveryCacheTtl how long a discovered list is reused before Loki
    *     is asked again
+   * @param adminRole the client role on LogGate's own OIDC client that lets
+   *     someone see the activity dashboard and the audit trail, across
+   *     everyone's exports, in either mode; blank makes nobody an administrator
    */
   public record Access(
       @DefaultValue("TEAM_LABEL") AccessMode mode,
       @DefaultValue("") String openRole,
       @DefaultValue("7d") Duration discoveryWindow,
-      @DefaultValue("60s") Duration discoveryCacheTtl) {
+      @DefaultValue("60s") Duration discoveryCacheTtl,
+      @DefaultValue("loggate-admin") String adminRole) {
 
     /** Whether callers are granted namespaces by team label. */
     public boolean teamLabel() {
@@ -202,4 +208,54 @@ public record LogGateProperties(
    */
   public record Oidc(
       @DefaultValue("") String caCertificate) {}
+
+  /**
+   * Where the pods on offer are listed from.
+   *
+   * <p>Loki's index knows pods only as a label on streams, and asking it for a
+   * label's values across many namespaces and days is a scan. Any
+   * Prometheus-compatible API that holds a per-pod series, kube-state-metrics'
+   * {@code kube_pod_info} being the usual one, answers the same question from
+   * its own index for a fraction of the cost.
+   *
+   * @param metricsUrl base URL of a Prometheus-compatible query API
+   *     (Prometheus, Thanos, Mimir, OpenShift's thanos-querier); empty turns
+   *     pod listing off, leaving the pod pattern as the only way to narrow
+   * @param metric the series selector listing one series per pod, e.g.
+   *     {@code kube_pod_info} or {@code kube_pod_info{job="kube-state-metrics"}}
+   * @param podLabel the label on that series naming the pod
+   * @param namespaceLabel the label naming the pod's namespace
+   * @param clusterLabel the label naming the pod's cluster; empty uses
+   *     {@code loggate.loki.cluster-label}, since the same shipper usually
+   *     stamps both
+   * @param tenantId sent as {@code X-Scope-OrgID}, for Mimir and Cortex
+   * @param bearerTokenFile a file holding a bearer token, re-read on every
+   *     request so a rotated service-account token is picked up
+   * @param caCertificate a PEM file of certificates to trust for the endpoint
+   * @param timeout per-request timeout
+   * @param maxPods most pods returned for one listing
+   * @param cacheTtl how long one listing is reused
+   * @param allowPattern whether pods may be matched by a glob as well as
+   *     picked by name. Off, an export names its pods from the list or takes
+   *     every pod, and a request carrying a pattern is refused
+   */
+  public record Pods(
+      @DefaultValue("") String metricsUrl,
+      @DefaultValue("kube_pod_info") String metric,
+      @DefaultValue("pod") String podLabel,
+      @DefaultValue("namespace") String namespaceLabel,
+      @DefaultValue("") String clusterLabel,
+      @DefaultValue("") String tenantId,
+      @DefaultValue("") String bearerTokenFile,
+      @DefaultValue("") String caCertificate,
+      @DefaultValue("10s") Duration timeout,
+      @DefaultValue("1000") int maxPods,
+      @DefaultValue("60s") Duration cacheTtl,
+      @DefaultValue("true") boolean allowPattern) {
+
+    /** Whether pods can be listed at all. */
+    public boolean enabled() {
+      return !metricsUrl.isBlank();
+    }
+  }
 }

@@ -3,6 +3,7 @@ package com.opentooling.loggate.web;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -45,6 +46,10 @@ class NamespaceControllerTest {
   @MockitoBean private AuthorizationGate authorization;
   @MockitoBean private com.opentooling.loggate.export.ExportService exports;
   @MockitoBean private com.opentooling.loggate.delivery.DeliveryService delivery;
+  @MockitoBean private com.opentooling.loggate.pods.PodSource podSource;
+  @MockitoBean private com.opentooling.loggate.activity.ActivityRepository activityRepository;
+  @MockitoBean private com.opentooling.loggate.audit.AuditService auditService;
+  @MockitoBean private com.opentooling.loggate.audit.AuditLog auditLog;
 
   /** A signed-in caller in the platform team. */
   private static OidcLoginRequestPostProcessor alice() {
@@ -70,6 +75,9 @@ class NamespaceControllerTest {
         .andExpect(jsonPath("$.subject").value("alice-subject"))
         .andExpect(jsonPath("$.mode").value("TEAM_LABEL"))
         .andExpect(jsonPath("$.namespacesOptional").value(false))
+        // Patterns are allowed unless switched off.
+        .andExpect(jsonPath("$.podPatternAllowed").value(true))
+        .andExpect(jsonPath("$.admin").value(false))
         .andExpect(jsonPath("$.namespaces[0].name").value("platform-dev"))
         .andExpect(jsonPath("$.namespaces[0].owningGroup").value("ad-platform-dev"));
   }
@@ -88,6 +96,50 @@ class NamespaceControllerTest {
         .andExpect(jsonPath("$.namespacesOptional").value(true))
         .andExpect(jsonPath("$.clusters[1]").value("core-us"))
         .andExpect(jsonPath("$.barrier").value("Exporting logs here needs the \"export-logs\" role"));
+  }
+
+  @Test
+  void meLeavesNamespacesUntilAClusterIsChosenInOpenMode() throws Exception {
+    // Every namespace in every cluster is the costliest thing Loki could be
+    // asked on page load, for a list nobody reads before picking a cluster.
+    when(access.mode()).thenReturn(LogGateProperties.AccessMode.OPEN);
+    when(access.clusters(any())).thenReturn(List.of("edge-eu", "core-us"));
+
+    mvc.perform(get("/api/me").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.namespaces").isEmpty())
+        .andExpect(jsonPath("$.podsListable").value(false));
+    verify(access, never()).namespaces(any(), any());
+  }
+
+  @Test
+  void meListsNamespacesInOpenModeWhenThereAreNoClustersToChoose() throws Exception {
+    when(access.mode()).thenReturn(LogGateProperties.AccessMode.OPEN);
+    when(access.clusters(any())).thenReturn(List.of());
+    when(access.namespaces(any(), any())).thenReturn(List.of(new NamespaceInfo("a", null, null)));
+
+    mvc.perform(get("/api/me").with(alice()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.namespaces[0].name").value("a"));
+  }
+
+  @Test
+  void meSaysWhetherTheCallerIsAnAdministrator() throws Exception {
+    when(access.mode()).thenReturn(LogGateProperties.AccessMode.TEAM_LABEL);
+    mvc.perform(get("/api/me").with(ActivityControllerTest.admin()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.admin").value(true));
+  }
+
+  @Test
+  void namespacesWaitForAClusterInOpenMode() throws Exception {
+    when(access.mode()).thenReturn(LogGateProperties.AccessMode.OPEN);
+    when(access.clusters(any())).thenReturn(List.of("edge-eu"));
+
+    mvc.perform(get("/api/namespaces").with(alice()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("choose at least one cluster first"));
+    verify(access, never()).namespaces(any(), any());
   }
 
   @Test

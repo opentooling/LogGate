@@ -103,6 +103,12 @@ access:
   openRole: ""
   # How far back to look in Loki for the clusters and namespaces to offer.
   discoveryWindow: 7d
+  # A client role on LogGate's OIDC client (oidc.clientId), held directly or
+  # through a group, that opens the Activity dashboard and the download audit
+  # trail, across everyone's exports, in either mode. It is separate from
+  # openRole: auditing does not need exporting, nor the other way round. Empty
+  # makes nobody an administrator.
+  adminRole: loggate-admin
 
 # -- Team ownership, for access.mode=teamLabel.
 namespaces:
@@ -128,9 +134,11 @@ oidc:
   existingSecret: ""
   clientSecretKey: oidc-client-secret
   # -- A certificate authority to trust for the OIDC issuer endpoint, for issuers
-  # behind an internal CA. A Secret in this namespace holding a PEM bundle.
+  # behind an internal CA: a PEM bundle under `key` in a Secret or a ConfigMap
+  # in this namespace. Set one of secretName or configMapName, not both.
   caCertificate:
     secretName: ""
+    configMapName: ""
     key: ca.crt
 
 # -- RBAC for reading namespace metadata, the only cluster-scoped permission
@@ -170,6 +178,11 @@ keycloak:
     name: log-exporters
     role: export-logs
     members: [alice, carol]
+  # The group granted access.adminRole in the demo realm. carol can see the
+  # Activity and Audit pages; alice and bob, who can export, cannot.
+  adminGroup:
+    name: loggate-admins
+    members: [carol]
   # dave deliberately has no teams: the refusal path needs a fixture too.
   demoUsers:
     - username: alice
@@ -204,6 +217,13 @@ networkPolicy:
   ingressFrom:
     - namespaceSelector:
         kubernetes.io/metadata.name: ingress-nginx
+  # Peers allowed to scrape metrics on the management port, as NetworkPolicy
+  # `from` entries. On OpenShift, user-workload monitoring scrapes from the
+  # openshift-user-workload-monitoring namespace.
+  metricsFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: monitoring
   # Where the application is allowed to connect. Loki, object storage, the
   # identity provider and the Kubernetes API all live here.
   egressTo: []
@@ -214,6 +234,69 @@ networkPolicy:
   #    ports:
   #      - port: 3100
   #        protocol: TCP
+
+# -- Where the pods on offer are listed from. Loki cannot list pods cheaply,
+# so they come from a Prometheus-compatible API holding one series per pod:
+# kube-state-metrics' kube_pod_info by default. Pods are listed for the
+# namespaces and range an export is being set up for, never more. Empty
+# metricsUrl turns listing off, and pods are then narrowed by pattern only.
+pods:
+  # e.g. http://prometheus-server.monitoring.svc; for Grafana Mimir its query
+  # path with the /prometheus prefix, such as
+  # http://mimir-query-frontend.mimir.svc:8080/prometheus, with tenantId set;
+  # on OpenShift https://thanos-querier.openshift-monitoring.svc:9091 with
+  # bearerToken.serviceAccount and the service CA below.
+  metricsUrl: ""
+  # A series selector with one series per pod; any matchers here are kept,
+  # e.g. kube_pod_info{job="kube-state-metrics"}.
+  metric: kube_pod_info
+  podLabel: pod
+  namespaceLabel: namespace
+  # The label naming the pod's cluster. Empty uses loki.clusterLabel.
+  clusterLabel: ""
+  # Sent as X-Scope-OrgID, for Mimir and Cortex: the tenant the pod metrics
+  # were written under. Mimir refuses a query without one by default.
+  tenantId: ""
+  # Send the pod's own service-account token as a bearer token. OpenShift's
+  # thanos-querier needs it, with the cluster-monitoring-view role bound to
+  # this release's service account.
+  bearerToken:
+    serviceAccount: false
+  # A CA to trust for metricsUrl, from a Secret or a ConfigMap. On OpenShift, a
+  # ConfigMap annotated service.beta.openshift.io/inject-cabundle=true gets the
+  # service CA under service-ca.crt.
+  caCertificate:
+    secretName: ""
+    configMapName: ""
+    key: ca.crt
+  maxPods: 1000
+  # Whether pods may also be matched by a glob such as api-*. Off, pods are
+  # picked from the list or not narrowed at all, and the API refuses a request
+  # that carries a pattern. With metricsUrl empty as well, there is no pod
+  # filter: every export takes every pod in its namespaces.
+  allowPattern: true
+
+# -- Prometheus metrics, served at /actuator/prometheus on a management port
+# that the Ingress and Route never reach.
+metrics:
+  port: 9090
+  # prometheus.io/* annotations on the pods, for a Prometheus that finds its
+  # targets by annotation.
+  podAnnotations: false
+  # A ServiceMonitor, for the Prometheus Operator and OpenShift's user-workload
+  # monitoring. Needs the monitoring.coreos.com CRDs.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  # The Grafana dashboard for these metrics, as a ConfigMap that Grafana's
+  # dashboard sidecar picks up by label. The same JSON is in the chart at
+  # dashboards/loggate.json for importing by hand.
+  dashboard:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}
 
 # -- Extra environment variables for the app container, e.g. to raise a log
 # level without rebuilding the image.
@@ -244,9 +327,14 @@ storage:
   # the AWS SDK's own default and is for AWS S3 only.
   checksums: whenRequired
   # -- A certificate authority to trust for the storage endpoint, for stores
-  # behind an internal CA. A Secret in this namespace holding a PEM bundle.
+  # behind an internal CA: a PEM bundle under `key` in a Secret or a ConfigMap
+  # in this namespace. Set one of secretName or configMapName, not both. On
+  # OpenShift, a ConfigMap labelled
+  # config.openshift.io/inject-trusted-cabundle=true is filled with the
+  # cluster's trusted bundle under ca-bundle.crt.
   caCertificate:
     secretName: ""
+    configMapName: ""
     key: ca.crt
 
 # -- Workers and quotas.

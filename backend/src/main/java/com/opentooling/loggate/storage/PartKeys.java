@@ -19,9 +19,15 @@ public final class PartKeys {
     return "jobs/" + jobId + "/";
   }
 
-  /** The part produced by one window. */
+  /** The part produced by one window, in the default format. */
   public static String part(UUID jobId, int windowIndex) {
+    return part(jobId, windowIndex, com.opentooling.loggate.export.OutputFormat.JSON);
+  }
+
+  /** The part produced by one window, named for what it holds. */
+  public static String part(
+      UUID jobId, int windowIndex, com.opentooling.loggate.export.OutputFormat format) {
     // Zero-padded so a plain lexicographic listing is chronological.
-    return jobPrefix(jobId) + "parts/%06d.jsonl.gz".formatted(windowIndex);
+    return jobPrefix(jobId) + "parts/%06d".formatted(windowIndex) + format.extension();
   }
 }

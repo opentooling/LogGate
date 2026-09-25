@@ -1,0 +1,20 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "loggate.fullname" . }}
+  labels:
+    {{- include "loggate.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "loggate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+  endpoints:
+    - port: management
+      path: /actuator/prometheus
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

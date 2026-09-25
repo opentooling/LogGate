@@ -95,6 +95,10 @@ check "carol, in the group that holds the role, is let in" "None" "$(body "$r" |
 check "the mode is open" "OPEN" "$(body "$r" | jq_get 'd["mode"]')"
 check "an export may name no namespaces" "True" "$(body "$r" | jq_get 'd["namespacesOptional"]')"
 check "every cluster Loki holds is offered" "$REMOTE,$LOCAL" "$(body "$r" | jq_get '",".join(sorted(d["clusters"]))')"
+check "but no namespaces until a cluster is chosen, sparing Loki the widest query" "0" \
+  "$(body "$r" | jq_get 'len(d["namespaces"])')"
+r="$(api "$JAR" GET /api/namespaces)"
+check "and asking for every cluster's namespaces at once is refused" "400" "$(status "$r")"
 
 r="$(api "$JAR" GET "/api/namespaces?cluster=$REMOTE")"
 check "namespaces come from Loki, for a cluster LogGate cannot reach" "checkout-prod,platform-dev" \

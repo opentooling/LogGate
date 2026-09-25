@@ -16,6 +16,9 @@ public final class SelectorBuilder {
   /** DNS-1123 label, which is all a Kubernetes namespace name can be. */
   private static final Pattern NAMESPACE = Pattern.compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?");
 
+  /** DNS-1123 subdomain, which is all a Kubernetes pod name can be. */
+  private static final Pattern POD = Pattern.compile("[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?");
+
   private static final int MAX_GLOB_LENGTH = 256;
   private static final int MAX_LINE_FILTER_LENGTH = 512;
 
@@ -38,8 +41,16 @@ public final class SelectorBuilder {
   }
 
   /**
-   * The stream selector, plus any line filter, for {@code request}, with its
-   * clusters matched on {@code clusterLabel} when one is configured.
+   * The stream selector, plus any line and pod filters, for {@code request},
+   * with its clusters matched on {@code clusterLabel} when one is configured.
+   *
+   * <p>The pod is matched by a label filter after the stream selector, not in
+   * it: {@code {namespace="a"} | pod="x"}. Where logs are shipped with the pod
+   * as structured metadata rather than as an indexed label, as OpenTelemetry
+   * pipelines and recent Alloy configurations do, a matcher in the selector
+   * matches no stream at all; a label filter matches the pod wherever it is
+   * carried, including as an indexed label. The line filter goes first, being
+   * the cheaper of the two for Loki to apply.
    */
   public static String build(ExportRequest request, String clusterLabel) {
     StringBuilder selector = new StringBuilder("{");
@@ -47,8 +58,14 @@ public final class SelectorBuilder {
       selector.append(clusterMatcher(clusterLabel, request.clusters())).append(", ");
     }
     selector.append(namespaceMatcher(request.namespaces()));
-    if (hasText(request.podPattern())) {
-      selector.append(", pod=~\"").append(globToRegex(request.podPattern())).append('"');
+    String podFilter = null;
+    if (!request.pods().isEmpty()) {
+      if (hasText(request.podPattern())) {
+        throw new IllegalArgumentException("pick pods or give a pod pattern, not both");
+      }
+      podFilter = podMatcher(request.pods());
+    } else if (hasText(request.podPattern())) {
+      podFilter = "pod=~\"" + globToRegex(request.podPattern()) + '"';
     }
     if (hasText(request.containerPattern())) {
       selector
@@ -61,10 +78,16 @@ public final class SelectorBuilder {
       // A literal substring match, not a regex: |= rather than |~.
       selector.append(" |= \"").append(escapeStringLiteral(request.lineFilter())).append('"');
     }
+    if (podFilter != null) {
+      selector.append(" | ").append(podFilter);
+    }
     return selector.toString();
   }
 
-  /** The selector without any line filter, which is what the volume API sizes. */
+  /**
+   * The stream selector alone, without line or pod filters, which is all the
+   * volume API can size.
+   */
   public static String buildStreamSelector(ExportRequest request, String clusterLabel) {
     String full = build(request, clusterLabel);
     // Cluster values are escaped, so the first unescaped closing brace ends the
@@ -109,7 +132,7 @@ public final class SelectorBuilder {
    * string it sits in. Only metacharacters are escaped, so a cluster name
    * reads the same in the generated query as it does in the label.
    */
-  static String regexLiteral(String value) {
+  public static String regexLiteral(String value) {
     if (value.length() > MAX_GLOB_LENGTH) {
       throw new IllegalArgumentException("value is longer than " + MAX_GLOB_LENGTH + " characters");
     }
@@ -138,6 +161,26 @@ public final class SelectorBuilder {
       return "namespace=\"" + namespaces.getFirst() + "\"";
     }
     return "namespace=~\"" + String.join("|", namespaces) + "\"";
+  }
+
+  /**
+   * Pods picked by name. A pod name is a DNS subdomain, so anything else is
+   * refused rather than escaped: the only dots it can hold are escaped as
+   * regex metacharacters, and nothing else in one needs escaping at all.
+   */
+  private static String podMatcher(List<String> pods) {
+    for (String pod : pods) {
+      if (pod == null || !POD.matcher(pod).matches()) {
+        throw new IllegalArgumentException("not a valid pod name: " + pod);
+      }
+    }
+    List<String> distinct = pods.stream().distinct().sorted().toList();
+    if (distinct.size() == 1) {
+      return "pod=\"" + distinct.getFirst() + "\"";
+    }
+    return "pod=~\""
+        + String.join("|", distinct.stream().map(SelectorBuilder::regexLiteral).toList())
+        + "\"";
   }
 
   private static void requireNamespace(String namespace) {

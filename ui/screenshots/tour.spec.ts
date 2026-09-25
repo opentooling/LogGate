@@ -28,7 +28,7 @@ test.describe.configure({ mode: "serial" });
  * usual cause.
  */
 test.beforeAll(async ({ request }) => {
-  const response = await request.get("/actuator/health");
+  const response = await request.get("/readyz");
   const server = Date.parse(response.headers()["date"] ?? "");
   const skewSeconds = Math.round(Math.abs(server - Date.now()) / 1000);
   if (Number.isNaN(server) || skewSeconds > 60) {
@@ -40,7 +40,9 @@ test.beforeAll(async ({ request }) => {
 });
 
 async function signIn(page: Page, username: string) {
+  // Through the landing page, as a person arrives.
   await page.goto("/");
+  await page.getByRole("link", { name: "Sign in with single sign-on" }).click();
   await page.fill("#username", username);
   await page.fill("#password", PASSWORD);
   await page.click("#kc-form-login button[type=submit], #kc-login");
@@ -58,7 +60,8 @@ function localInput(date: Date): string {
 
 async function choose(page: Page, namespaces: string[]) {
   for (const name of ["platform-dev", "payments-dev"]) {
-    const box = page.getByRole("checkbox", { name: new RegExp(name) });
+    // Scoped: the pod list's group toggles are named after namespaces too.
+    const box = page.locator('[data-testid="namespaces"]').getByRole("checkbox", { name: new RegExp(name) });
     if (namespaces.includes(name)) await box.check();
     else await box.uncheck();
   }
@@ -66,8 +69,23 @@ async function choose(page: Page, namespaces: string[]) {
 
 async function rangeFromNow(page: Page, minutesAgo: number) {
   const now = new Date();
-  await page.getByLabel("From").fill(localInput(new Date(now.getTime() - minutesAgo * 60_000)));
-  await page.getByLabel("To").fill(localInput(now));
+  await page.getByLabel("From", { exact: true }).fill(localInput(new Date(now.getTime() - minutesAgo * 60_000)));
+  await page.getByLabel("To", { exact: true }).fill(localInput(now));
+}
+
+/**
+ * Pins the action bar where it sits in the form. It sticks to the bottom of the
+ * viewport, which is right on screen but, in a shot of one part of a card
+ * taller than the viewport, lands on top of whatever that part is.
+ */
+async function unstick(page: Page) {
+  await page.addStyleTag({ content: ".actions-sticky { position: static; }" });
+}
+
+/** Narrows by pod pattern rather than by picking from the list. */
+async function podPattern(page: Page, pattern: string) {
+  await page.getByRole("button", { name: "Match a pattern" }).click();
+  await page.getByLabel("Pod pattern").fill(pattern);
 }
 
 const newExport = (page: Page) => page.locator("section.card").nth(0);
@@ -76,6 +94,7 @@ const exportsCard = (page: Page) => page.locator("section.card").nth(1);
 test("signing in", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
+  await page.getByRole("link", { name: "Sign in with single sign-on" }).click();
   await expect(page.locator("#username")).toBeVisible();
   await page.screenshot({ path: `${OUT}/01-sign-in.png` });
 });
@@ -88,7 +107,7 @@ test("the tour, as someone in two teams", async ({ page }) => {
   // of one team's API pods finishes in about a minute.
   await choose(page, ["platform-dev"]);
   await rangeFromNow(page, 30);
-  await page.getByLabel("Pods").fill("platform-api-*");
+  await podPattern(page, "platform-api-*");
   await page.getByRole("button", { name: /^Start export/ }).click();
 
   const ready = exportsCard(page).locator('[data-testid="job"][data-state="READY"]').first();
@@ -98,8 +117,14 @@ test("the tour, as someone in two teams", async ({ page }) => {
   await ready.screenshot({ path: `${OUT}/07-ready.png` });
 
   // The estimate, across both teams, with the generated query open.
-  await page.getByLabel("Pods").fill("");
+  await page.getByLabel("Pod pattern").fill("");
+  await page.getByRole("button", { name: "Pick from list" }).click();
   await choose(page, ["platform-dev", "payments-dev"]);
+  // The pods that ran in both namespaces, grouped by namespace.
+  const pods = newExport(page).locator('[data-testid="pods-picker"]');
+  await expect(pods.getByRole("group", { name: /-dev$/ })).toHaveCount(2, { timeout: 30_000 });
+  await unstick(page);
+  await pods.screenshot({ path: `${OUT}/12-pods.png` });
   await page.getByRole("button", { name: "Last 24 hours" }).click();
   await page.getByRole("button", { name: "Estimate first" }).click();
   const estimate = page.locator(".estimate");
@@ -133,16 +158,44 @@ test("the tour, as someone in two teams", async ({ page }) => {
   await expect(allowance).toContainText("exports running");
   await allowance.screenshot({ path: `${OUT}/04-allowance.png` });
 
+  // The activity page, with the exports this tour just made on it.
+  await page.getByRole("button", { name: "Activity" }).click();
+  const activity = page.locator('[data-testid="activity"]');
+  await expect(activity.locator('[data-testid="chart"]')).toHaveCount(3);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: `${OUT}/13-activity.png`, fullPage: true });
+
+  // The audit trail, with the downloads this tour just made on it.
+  await page.getByRole("button", { name: "Audit" }).click();
+  const audit = page.locator('[data-testid="audit"]');
+  await expect(audit.locator('[data-testid="audit-row"]').first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: `${OUT}/14-audit.png`, fullPage: true });
+  await page.getByRole("button", { name: "Export" }).click();
+
   // A range longer than one export may cover is stopped in the form.
   await rangeFromNow(page, 3 * 24 * 60);
   // Typing leaves a focus ring and a selected field, which is not what anyone
   // sees when they read the message.
-  await page.getByLabel("To").blur();
+  await page.getByLabel("To", { exact: true }).blur();
   const range = newExport(page).locator("fieldset", {
     has: page.locator("legend", { hasText: "Time range" }),
   });
   await expect(range.locator(".field-error")).toContainText("at most");
   await range.screenshot({ path: `${OUT}/05-range-limit.png` });
+});
+
+test("the public pages", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/welcome");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await page.screenshot({ path: `${OUT}/15-welcome.png` });
+  await page.goto("/guide");
+  await expect(page.getByRole("heading", { name: "LogGate user guide" })).toBeVisible();
+  await page.screenshot({ path: `${OUT}/16-guide.png` });
+  await page.goto("/signed-out");
+  await expect(page.getByRole("heading", { name: "You're signed out" })).toBeVisible();
+  await page.screenshot({ path: `${OUT}/17-signed-out.png` });
 });
 
 test("someone with no team", async ({ page }) => {
@@ -196,6 +249,7 @@ test.describe("open access", () => {
 
     await page.getByRole("button", { name: "Estimate first" }).click();
     await expect(page.locator(".estimate .breakdown li")).toHaveCount(2);
+    await unstick(page);
     await newExport(page).screenshot({ path: `${OUT}/10-open-access.png` });
   });
 

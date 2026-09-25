@@ -41,6 +41,12 @@ public class JobsConfig {
   }
 
   @Bean
+  com.opentooling.loggate.activity.ActivityRepository activityRepository(
+      JdbcClient db, ExportJobRepository jobs) {
+    return new com.opentooling.loggate.activity.ActivityRepository(db, jobs, Clock.systemUTC());
+  }
+
+  @Bean
   QuotaGuard quotaGuard(ExportJobRepository jobs, LogGateProperties properties) {
     return new QuotaGuard(jobs, properties, Clock.systemUTC());
   }

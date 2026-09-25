@@ -163,3 +163,30 @@ capabilities:
   drop:
     - ALL
 {{- end -}}
+
+{{- /*
+A certificate authority to trust, from a Secret or a ConfigMap. A CA bundle is
+public, so a ConfigMap is as good a home for it as a Secret, and is where
+OpenShift's service CA and trusted-CA-bundle injection put one. Takes a dict
+of `ca` (the caCertificate values) and `name` (what the setting is called, for
+the error). Renders nothing when neither source is set.
+*/}}
+{{- define "loggate.caSource" -}}
+{{- $ca := .ca | default dict -}}
+{{- if and $ca.secretName $ca.configMapName -}}
+{{- fail (printf "%s sets both secretName and configMapName; choose one." .name) -}}
+{{- end -}}
+{{- if $ca.secretName }}
+secret:
+  secretName: {{ $ca.secretName }}
+  items:
+    - key: {{ $ca.key | default "ca.crt" }}
+      path: {{ $ca.key | default "ca.crt" }}
+{{- else if $ca.configMapName }}
+configMap:
+  name: {{ $ca.configMapName }}
+  items:
+    - key: {{ $ca.key | default "ca.crt" }}
+      path: {{ $ca.key | default "ca.crt" }}
+{{- end -}}
+{{- end -}}

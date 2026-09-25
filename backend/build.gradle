@@ -83,6 +83,12 @@ tasks.register('uiBuild', Exec) {
   workingDir uiDir
   commandLine 'npm', 'run', 'build'
   inputs.dir(file("${uiDir}/src"))
+  // The public pages, and the guide built from the user guide. The generated
+  // guide is left out: this task writes it, so it would never be up to date.
+  inputs.files(fileTree("${uiDir}/public") { exclude 'guide/**' })
+  inputs.dir(file("${uiDir}/scripts"))
+  inputs.file(file("${rootDir}/docs/USER-GUIDE.md"))
+  inputs.dir(file("${rootDir}/docs/images"))
   inputs.file(file("${uiDir}/index.html"))
   inputs.file(file("${uiDir}/vite.config.ts"))
   inputs.file(file("${uiDir}/tsconfig.json"))

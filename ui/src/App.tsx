@@ -2,7 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type ExportJob, type Me, type Quota } from "./api";
 import { NewExport } from "./NewExport";
 import { Exports } from "./Exports";
+import { Activity } from "./Activity";
+import { Audit } from "./Audit";
 import { applyTheme, nextTheme, rememberTheme, storedTheme, themeLabel, type Theme } from "./theme";
+
+type View = "export" | "activity" | "audit";
+
+/** The view named in the address, so a link to the dashboard opens it. */
+function viewFromHash(): View {
+  const hash = window.location.hash.slice(1);
+  return hash === "activity" || hash === "audit" ? hash : "export";
+}
 
 /** States that are still moving, and therefore worth polling. */
 export const ACTIVE_STATES = new Set(["QUEUED", "PLANNED", "RUNNING", "FINALIZING"]);
@@ -14,6 +24,18 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [view, setView] = useState<View>(viewFromHash);
+
+  useEffect(() => {
+    const follow = () => setView(viewFromHash());
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
+
+  function show(next: View) {
+    window.location.hash = next === "export" ? "" : next;
+    setView(next);
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -39,6 +61,16 @@ export function App() {
     return () => clearInterval(timer);
   }, [jobs, refresh]);
 
+  async function signOut() {
+    try {
+      const { redirect } = await api.signOut();
+      window.location.assign(redirect);
+    } catch {
+      // The session may already be gone; the signed-out page says the same.
+      window.location.assign("/signed-out.html");
+    }
+  }
+
   function cycleTheme() {
     const chosen = nextTheme(theme);
     setTheme(chosen);
@@ -55,16 +87,34 @@ export function App() {
             Bulk log export, for when a dashboard is the wrong tool.
           </p>
         </div>
+        {/* The other views are for administrators; everyone else has only
+            the one, so there is nothing to switch between. */}
+        {me?.admin && (
+          <nav className="tabs" aria-label="Views">
+            <button type="button" aria-pressed={view === "export"} onClick={() => show("export")}>
+              Export
+            </button>
+            <button type="button" aria-pressed={view === "activity"} onClick={() => show("activity")}>
+              Activity
+            </button>
+            <button type="button" aria-pressed={view === "audit"} onClick={() => show("audit")}>
+              Audit
+            </button>
+          </nav>
+        )}
         <div className="who">
+          <a className="link" href="/guide" target="_blank" rel="noopener">
+            Guide
+          </a>
           <button type="button" className="theme" onClick={cycleTheme} aria-live="polite">
             {themeLabel(theme)}
           </button>
           {me && (
             <>
               <span className="name">{me.name}</span>
-              <a className="link" href="/logout">
+              <button type="button" className="link sign-out" onClick={signOut}>
                 Sign out
-              </a>
+              </button>
             </>
           )}
         </div>
@@ -81,6 +131,10 @@ export function App() {
 
       {loading ? (
         <p className="quiet">Loading…</p>
+      ) : view === "activity" && me?.admin ? (
+        <Activity onError={setError} />
+      ) : view === "audit" && me?.admin ? (
+        <Audit onError={setError} />
       ) : (
         <div className="columns">
           <div>

@@ -96,4 +96,16 @@ class EntryWriterTest {
     // The embedded newline must not split the record into two lines.
     assertThat(written().lines()).hasSize(1);
   }
+
+  @Test
+  void writesTheRawLinesAloneInRawFormat() {
+    try (var writer = new EntryWriter(sink, JsonMapper.builder().build(), OutputFormat.RAW)) {
+      writer.write(new LogEntry(1L, "GET /health 200", Map.of("pod", "api-1")));
+      writer.write(new LogEntry(2L, "{\"already\":\"json\"}", Map.of("pod", "api-2")));
+      // Counted as written, which in this format is the line and its newline.
+      assertThat(writer.uncompressedBytes()).isEqualTo(16 + 19);
+    }
+    // Exactly as logged: no timestamp, no labels, no quoting.
+    assertThat(written()).isEqualTo("GET /health 200\n{\"already\":\"json\"}\n");
+  }
 }

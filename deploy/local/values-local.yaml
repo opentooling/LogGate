@@ -70,6 +70,17 @@ resources:
     # gigabyte export ran, at which point the pods were killed.
     memory: 1536Mi
 
+# Pods are listed from the local Prometheus's kube-state-metrics.
+pods:
+  metricsUrl: http://prometheus-server.observability.svc.cluster.local
+
+# Scraped by the local Prometheus by annotation, and charted in the local
+# Grafana by the dashboard this ConfigMap carries.
+metrics:
+  podAnnotations: true
+  dashboard:
+    enabled: true
+
 execution:
   # Fewer workers per pod locally: with two replicas that is still four in
   # flight, which is plenty for a laptop-sized Loki.

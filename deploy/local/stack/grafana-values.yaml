@@ -13,6 +13,21 @@ datasources:
         access: proxy
         url: http://loki-gateway.observability.svc.cluster.local
         isDefault: true
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus-server.observability.svc.cluster.local
+
+# Dashboards come from ConfigMaps labelled grafana_dashboard, in any
+# namespace: LogGate's chart ships its own that way (metrics.dashboard).
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    searchNamespace: ALL
+    folder: /tmp/dashboards
 
 ingress:
   enabled: true

@@ -50,6 +50,7 @@ flowchart LR
   loki[Grafana Loki]
   alloy[Alloy]
   graf[Grafana]
+  prom[Prometheus-compatible<br/>metrics store]
 
   eng --> ui
   ops --> ui
@@ -61,12 +62,15 @@ flowchart LR
   wrk -->|claim windows| pg
   wrk -->|query_range| loki
   wrk -->|gzip parts| s3
+  api -->|series: pods per namespace| prom
+  prom -.->|scrape :9090| api
   api -->|presign, assemble, sweep| s3
   eng -.->|presigned download| s3
   alloy --> loki
   alloy --> k8s
   eng -.->|day-to-day| graf
   graf --> loki
+  graf --> prom
 ```
 
 Two things in that picture carry most of the design weight.
@@ -147,6 +151,40 @@ and namespaces come from Loki's index, cached for a minute and served stale if
 Loki blips. They decide what the page offers. The role decides what is allowed.
 A cluster Loki has never heard of is refused, which catches a typo before it
 becomes an export of nothing.
+
+**Clusters before namespaces.** Where there are clusters to choose from, open
+mode lists namespaces only for chosen clusters: `/api/me` carries none, and
+`/api/namespaces` without a cluster is refused. Every namespace across every
+cluster is the widest label-values query the page could put to Loki, it used
+to be asked on every page load, and with twenty or thirty clusters nobody
+reads that list before narrowing it. The page makes "every cluster" an
+explicit *Select all* rather than the default. Team-label mode is unaffected:
+its namespaces come from this cluster's Kubernetes API and cost Loki nothing.
+
+### Pods, from metrics
+
+Loki knows a pod only as a label on its streams, so listing pods from it is an
+index scan across every namespace and day asked about. A metrics store already
+holds exactly this as one series per pod, kube-state-metrics' `kube_pod_info`,
+and its series API returns label sets without reading a sample. So
+`PrometheusPodSource` asks any Prometheus-compatible API (Prometheus, Thanos,
+Mimir, OpenShift's thanos-querier) for that series, restricted to the chosen
+namespaces and clusters **over the export's own range**, so what is offered is
+what ran then.
+
+The metric and its pod, namespace and cluster labels are configuration, since
+not every fleet runs kube-state-metrics or labels clusters the same way as
+its logs. The configured selector is validated at startup, and LogGate only
+ever adds matchers to it, escaped as regex literals, with namespaces held to
+DNS-label syntax. The listing is authorized exactly as an export of the same
+namespaces would be, and refusals are audited, because a pod list is a view
+into a namespace. It is advice for choosing, never a grant: the export is
+authorized on its namespaces whatever pods it names. Listings are cached for a
+minute, keyed to the minute, and served stale if the endpoint fails. With no
+endpoint configured the page offers the pod pattern alone. Compatibility with
+Grafana Mimir, whose API sits under `/prometheus` and requires a tenant, is
+checked against a real Mimir by `deploy/local/mimir-check.sh` in CI, including
+every dashboard query.
 
 ### Two deployment facts that are easy to get wrong
 
@@ -245,7 +283,17 @@ Callers never supply LogQL. Pod and container filters are **globs**: every
 character except `*` and `?` is escaped into a literal. That removes LogQL
 injection and regex denial-of-service as *categories*, rather than defending
 against them case by case, and it is why the structured-input decision earns
-its keep.
+its keep. The pod is matched by a label filter after the stream selector,
+`{namespace="a"} | pod="x"`, not by a matcher inside it: where logs carry
+the pod as structured metadata rather than as an indexed label, a matcher in
+the selector matches no stream, while a label filter matches it either way.
+The index therefore sizes the namespace, and what the pod filter keeps is
+sampled like a line filter. Pods picked from the list become an alternation
+of literals, and a name that is not a valid pod name is refused rather than
+escaped. A request
+may pick pods or give a pattern, not both. Picked pods are stored in their own
+column as well as in the selector, so "which pods did this take" can be
+answered without reading a regex.
 
 Sizing uses the stream selector **without** the line filter. A filter reduces
 what gets written but not what Loki reads, so the honest number to quota
@@ -366,13 +414,74 @@ later would let a relabelled namespace quietly rewrite who spent what.
 | Very recent time range | Logs still in ingesters may be absent — reported in the manifest, never silently missing |
 | Group membership revoked mid-job | Download re-check refuses; artifacts expire normally |
 
+## Output formats and signing out
+
+**Formats.** Each export chooses what its files hold: JSON lines carrying the
+timestamp, the stream labels and the line, or the raw lines alone. The choice
+is stored on the job, so the worker writing a retried window, the manifest
+and the download script agree on it, and it names the parts (`.jsonl.gz` or
+`.log.gz`). Raw output is also the one whose written size is the log lines'
+own, with no envelope added.
+
+**Public pages.** Someone arriving without a session lands on `/welcome`
+rather than being sent straight to the identity provider; API calls still get
+a 401. `/welcome`, `/guide` and `/signed-out` are static pages served without a
+session and load nothing that needs one. The guide is built from
+`docs/USER-GUIDE.md` with every UI build, so the published guide and the
+repository's are the same document.
+
+**Signing out** ends the identity provider's session as well as LogGate's,
+through OIDC RP-initiated logout; ending only LogGate's would sign the same
+person straight back in on the next page load. The page posts to `/logout`
+with its CSRF header and is answered with the provider's end-session URL,
+because a fetch cannot follow a redirect to another origin; the provider then
+returns to a static signed-out page that is served without a session. The
+provider must allow that page as a post-logout redirect URI; the demo realm
+does, and a production client needs `<app>/*` added.
+
+## Observability
+
+Micrometer publishes the export counters, timers and queue gauges on a
+**management port (9090)** of its own. The Service's `http` port, the Ingress
+and the Route reach only port 8080, where `/actuator` is not served at all, so
+Prometheus scrapes without a session and the metrics are never on the public
+host. Probes use the management port; `/livez` and `/readyz` are also served on
+the application port for anything that can only reach that. The chart can
+annotate the pods for an annotation-driven Prometheus, create a
+`ServiceMonitor`, open the port to a scraper in the NetworkPolicy, and ship
+the Grafana dashboard as a sidecar-loaded ConfigMap.
+
+The queue gauges read the shared database, so every replica reports the same
+value: the dashboard takes their `max`, not their `sum`. The app's own
+Activity page reads PostgreSQL directly instead of Prometheus: per-replica
+counters only know what one pod did since it started, while the database
+knows what every pod did, across restarts, and needs no metrics stack. It
+reports aggregates only, to anyone who may export.
+
 ## Audit
 
 `audit_event` is a first-class table, not application logs. Every submission,
 state transition and download is recorded with actor, selector and byte counts.
 
 This is deliberate: these exports contain production log data, which should be
-assumed to contain PII. The record of who took what must outlive the log
+assumed to contain PII.
+
+**Downloads** are recorded by how the data left. A `.zip` streams through
+LogGate, so `ARCHIVE_DOWNLOADED` is a download, recorded as it starts. The
+script and the per-file links hand out presigned URLs whose files are fetched
+from object storage directly, so `DOWNLOAD_SCRIPT_ISSUED` and
+`DOWNLOAD_LINKS_ISSUED` record the hand-over of the links, the last point
+LogGate can vouch for; the object store's own access log is the record of the
+fetch. Each row carries the export's namespaces, clusters and size as well as
+its id, because the job expires and the record of who took it must not. The
+page asks for per-file links only when someone opens the file list: minting
+them on every render would put a "download" in the trail for every page view.
+
+**Administrators** are holders of `access.adminRole`, a client role read from
+the access token exactly as the open-mode role is, and separate from it:
+auditing does not need exporting, and exporting does not make someone an
+auditor. They alone see the Activity report and the audit page. A blank role
+makes nobody an administrator. The record of who took what must outlive the log
 retention window itself, and must not be subject to the same log pipeline it is
 auditing.
 
@@ -420,7 +529,9 @@ production client factory and requires every payload mode to be one ONTAP
 documents; a control run with the AWS default proves the check would catch the
 trailer. On-premises stores are usually behind an internal certificate
 authority, which `storage.caCertificate` trusts for storage calls alone,
-leaving the rest of the JVM's trust untouched.
+leaving the rest of the JVM's trust untouched. The bundle may come from a
+Secret or a ConfigMap: a CA certificate is public, and a ConfigMap is where
+OpenShift's trusted-CA-bundle injection writes one.
 
 Locally, `deploy/local/deploy.sh` creates a k3d cluster and installs Loki,
 Alloy, Grafana and MinIO alongside it, so the full path is exercised on a

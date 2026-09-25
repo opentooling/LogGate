@@ -35,4 +35,4 @@ spec:
         - "10"
         - -O
         - /dev/null
-        - http://{{ include "loggate.fullname" . }}:{{ .Values.service.port }}/actuator/health/readiness
+        - http://{{ include "loggate.fullname" . }}:{{ .Values.service.port }}/readyz

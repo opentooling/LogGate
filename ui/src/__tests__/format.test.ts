@@ -38,6 +38,12 @@ describe("formatDuration", () => {
   it("handles a range that is not really a range", () => {
     expect(formatDuration(0)).toBe("0s");
   });
+
+  it("rounds measured durations to whole seconds, never down to nothing", () => {
+    expect(formatDuration(1.6063479999999999)).toBe("2s");
+    expect(formatDuration(42.4)).toBe("42s");
+    expect(formatDuration(0.2)).toBe("1s");
+  });
 });
 
 describe("formatCount", () => {

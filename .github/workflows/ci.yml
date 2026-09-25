@@ -166,6 +166,66 @@ jobs:
           fi
           echo "Both refused."
 
+      # A CA bundle is public, so it may come from a ConfigMap as well as a
+      # Secret; each must mount where the application reads it, and setting
+      # both must not render.
+      - name: Render CA certificates from a Secret and a ConfigMap
+        run: |
+          helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
+            --set storage.caCertificate.configMapName=trusted-ca \
+            --set storage.caCertificate.key=ca-bundle.crt \
+            --set oidc.caCertificate.secretName=idp-ca > ca.yaml
+          python3 - <<'PY'
+          import yaml
+          app = next(d for d in yaml.safe_load_all(open("ca.yaml")) if d and d["kind"] == "Deployment")
+          pod = app["spec"]["template"]["spec"]
+          volumes = {v["name"]: v for v in pod["volumes"]}
+          assert volumes["storage-ca"]["configMap"]["name"] == "trusted-ca", volumes
+          assert volumes["oidc-ca"]["secret"]["secretName"] == "idp-ca", volumes
+          env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
+          assert env["S3_CA_CERTIFICATE"] == "/etc/loggate/storage-ca/ca-bundle.crt", env
+          assert env["OIDC_CA_CERTIFICATE"] == "/etc/loggate/oidc-ca/ca.crt", env
+          print("CA certificates mount from both sources.")
+          PY
+          if helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
+              --set storage.caCertificate.configMapName=a \
+              --set storage.caCertificate.secretName=b >/dev/null 2>&1; then
+            echo "a CA from both a Secret and a ConfigMap rendered"; exit 1
+          fi
+
+      # Metrics are scraped on a port the Ingress and Route never reach, so the
+      # scrape paths are proven to point there, and the dashboard the chart
+      # ships is proven to be a dashboard.
+      - name: Render the metrics options
+        run: |
+          helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
+            --set metrics.serviceMonitor.enabled=true \
+            --set networkPolicy.enabled=true \
+            --set 'networkPolicy.metricsFrom[0].namespaceSelector.matchLabels.scraper=yes' > metrics.yaml
+          python3 - <<'PY'
+          import json, yaml
+          docs = [d for d in yaml.safe_load_all(open("metrics.yaml")) if d]
+          by = lambda kind: [d for d in docs if d["kind"] == kind]
+          app = next(d for d in by("Deployment") if d["metadata"]["name"] == "loggate")
+          pod = app["spec"]["template"]
+          assert pod["metadata"]["annotations"]["prometheus.io/port"] == "9090", pod["metadata"]
+          ports = {p["name"]: p["containerPort"] for p in pod["spec"]["containers"][0]["ports"]}
+          assert ports == {"http": 8080, "management": 9090}, ports
+          assert pod["spec"]["containers"][0]["readinessProbe"]["httpGet"]["port"] == "management"
+          monitor = by("ServiceMonitor")[0]
+          assert monitor["spec"]["endpoints"][0]["port"] == "management", monitor
+          ingress = by("Ingress")[0]
+          assert ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["port"]["number"] == 8080
+          policy = next(d for d in by("NetworkPolicy") if d["metadata"]["name"] == "loggate")
+          scrape = policy["spec"]["ingress"][1]
+          assert scrape["ports"] == [{"port": "management", "protocol": "TCP"}], scrape
+          board = next(d for d in by("ConfigMap") if d["metadata"]["name"].endswith("-dashboard"))
+          assert board["metadata"]["labels"]["grafana_dashboard"] == "1"
+          dashboard = json.loads(board["data"]["loggate.json"])
+          assert dashboard["uid"] == "loggate" and len(dashboard["panels"]) > 10
+          print("Metrics are scraped on the management port only, and the dashboard renders.")
+          PY
+
   architecture:
     name: Architecture model
     runs-on: ubuntu-24.04
@@ -184,6 +244,12 @@ jobs:
 
   e2e:
     name: End-to-end on k3d
+    # Switched off for now: MinIO no longer publishes its images (quay.io
+    # answers 401, Docker Hub has none), so the local stack cannot be pulled on
+    # a fresh runner. Run it locally with deploy/local/deploy.sh and the e2e/
+    # suites until the stack's object store is replaced, then delete this line
+    # and put e2e back in publish-image's needs.
+    if: false
     # Only worth a real cluster once the cheaper checks pass.
     needs: [build, chart]
     runs-on: ubuntu-24.04
@@ -262,6 +328,10 @@ jobs:
         if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
         run: e2e/retention.sh
 
+      - name: Pods, activity and metrics
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: e2e/pods-and-metrics.sh
+
       - name: Install Playwright's browser
         if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
         working-directory: ui
@@ -284,6 +354,12 @@ jobs:
       - name: OpenShift restricted mode
         if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
         run: deploy/local/openshift-check.sh
+
+      # Pod listing and the dashboard against Grafana Mimir, whose Prometheus
+      # API sits under /prometheus and needs a tenant.
+      - name: Mimir compatibility
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        run: deploy/local/mimir-check.sh
 
       # Last, because it reconfigures and restarts the application to tighten
       # the budget, and every other suite should see it as deployed.
@@ -316,10 +392,11 @@ jobs:
 
   publish-image:
     name: Publish image to GHCR
-    # Only from main, and only a commit that passed every check, including the
-    # end-to-end run on a real cluster.
+    # Only from main, and only a commit that passed every check. The end-to-end
+    # run belongs here too, and is left out only while it is switched off: a
+    # skipped job in needs would skip publishing as well.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build, chart, architecture, e2e]
+    needs: [build, chart, architecture]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

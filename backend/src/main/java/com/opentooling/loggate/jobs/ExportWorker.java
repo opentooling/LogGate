@@ -87,7 +87,7 @@ public class ExportWorker {
   }
 
   private void run(ClaimedWindow window) {
-    String key = PartKeys.part(window.jobId(), window.index());
+    String key = PartKeys.part(window.jobId(), window.index(), window.format());
     var counters = new Counters();
     long startedAt = System.nanoTime();
     try {
@@ -102,7 +102,7 @@ public class ExportWorker {
             var out =
                 new java.security.DigestOutputStream(
                     new java.util.zip.CheckedOutputStream(rawOut, crc), digest);
-            try (EntryWriter writer = new EntryWriter(out, json)) {
+            try (EntryWriter writer = new EntryWriter(out, json, window.format())) {
               pager.forEachEntry(
                   window.selector(),
                   new ExportWindow(window.index(), window.from(), window.to()),

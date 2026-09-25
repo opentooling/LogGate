@@ -27,6 +27,14 @@ spec:
       ports:
         - port: http
           protocol: TCP
+    {{- with .Values.networkPolicy.metricsFrom }}
+    # Whatever scrapes metrics, on the management port only.
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: management
+          protocol: TCP
+    {{- end }}
   egress:
     # DNS, or nothing else resolves. Where the resolver runs differs by
     # distribution: kube-dns on port 53 upstream, openshift-dns on 5353.

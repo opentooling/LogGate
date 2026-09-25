@@ -40,7 +40,7 @@ r="$(api "$JAR" POST /api/exports/estimate \
   "{\"namespaces\":[\"platform-dev\"],\"podPattern\":\"platform-api-*\",\"lineFilter\":\"request handled\",\"from\":\"$FROM\",\"to\":\"$TO\"}")"
 check "the request is accepted" "200" "$(status "$r")"
 check "the pod glob became an escaped regex" \
-  '{cluster="k3d-loggate", namespace="platform-dev", pod=~"platform\\-api\\-.*"} |= "request handled"' \
+  '{cluster="k3d-loggate", namespace="platform-dev"} |= "request handled" | pod=~"platform\\-api\\-.*"' \
   "$(body "$r" | jq_get 'd["estimate"]["selector"]')"
 
 echo

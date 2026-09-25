@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ACTIVE_STATES } from "./App";
 import { api, ApiError, type Download, type ExportJob } from "./api";
 import { serverNow } from "./clock";
@@ -84,16 +84,7 @@ function Job({
   onChanged: () => void;
   onError: (message: string) => void;
 }) {
-  const [downloads, setDownloads] = useState<Download[] | null>(null);
   const active = ACTIVE_STATES.has(job.state);
-
-  useEffect(() => {
-    if (job.state !== "READY") {
-      setDownloads(null);
-      return;
-    }
-    api.downloads(job.id).then(setDownloads).catch(() => setDownloads([]));
-  }, [job.id, job.state]);
 
   async function cancel() {
     try {
@@ -121,6 +112,7 @@ function Job({
         <span className="quiet range">
           {formatDuration(rangeSeconds)} to {new Date(job.to).toLocaleString()}
         </span>
+        {job.format === "RAW" && <span className="format-tag">raw lines</span>}
         {active && (
           <button type="button" className="ghost" onClick={cancel} disabled={job.cancelRequested}>
             {job.cancelRequested ? "Stopping…" : "Cancel"}
@@ -144,7 +136,7 @@ function Job({
         <p className="quiet">The files have been deleted. Run the export again if you still need it.</p>
       )}
 
-      {job.state === "READY" && <Ready job={job} downloads={downloads} />}
+      {job.state === "READY" && <Ready job={job} />}
     </li>
   );
 }
@@ -183,8 +175,24 @@ function Progress({ job }: { job: ExportJob }) {
   );
 }
 
-function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | null }) {
+/**
+ * A finished export and the ways to take it.
+ *
+ * <p>Links to the individual files are asked for only when that list is
+ * opened. Issuing them hands the data over, and is audited as such, so it
+ * happens when someone reaches for the files rather than whenever the page
+ * draws a finished export.
+ */
+function Ready({ job }: { job: ExportJob }) {
   const how = advice(job.bytesWritten);
+  const [downloads, setDownloads] = useState<Download[] | null>(null);
+  const [asked, setAsked] = useState(false);
+
+  function openFiles(open: boolean) {
+    if (!open || asked) return;
+    setAsked(true);
+    api.downloads(job.id).then(setDownloads).catch(() => setDownloads([]));
+  }
   const expiring = secondsUntil(job.expiresAt);
 
   // An export that found nothing is a finding, not a file. Offering to download
@@ -195,9 +203,26 @@ function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | nul
         <p className="summary">No log lines matched</p>
         <p className="quiet">
           Nothing was logged in these namespaces over this range
-          {job.selector.includes("pod=~") && ", by pods matching your pattern"}
+          {/ \| pod=/.test(job.selector) && ", from the pods you chose"}
           {job.selector.includes("|=") && ", containing your text"}. Check the time range and
           filters, then run it again.
+        </p>
+      </div>
+    );
+  }
+
+  // Access is re-checked at download, so buttons that could only be refused
+  // are replaced by the reason.
+  if (!job.downloadable) {
+    return (
+      <div className="downloads" data-testid="not-downloadable">
+        <p className="summary">
+          {formatCount(job.entriesWritten)} entries · {formatBytes(job.bytesWritten)} uncompressed
+        </p>
+        <p className="quiet">
+          You can no longer download this export: you do not have access to all of its
+          {job.clusters.length > 0 ? " clusters and" : ""} namespaces now. It may have been made
+          before your access changed, or while LogGate ran in a different access mode.
         </p>
       </div>
     );
@@ -228,9 +253,13 @@ function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | nul
           These files are deleted in {formatApprox(expiring)}.
         </p>
       )}
-      {downloads && downloads.length > 0 && (
-        <details>
-          <summary>{downloads.length} files, individually</summary>
+      <details onToggle={(e) => openFiles((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary>
+          {downloads ? `${downloads.length} files, individually` : "The files, individually"}
+        </summary>
+        {!downloads ? (
+          <p className="quiet">Asking for links…</p>
+        ) : (
           <ul className="files">
             {downloads.map((file) => (
               <li key={file.key}>
@@ -239,11 +268,11 @@ function Ready({ job, downloads }: { job: ExportJob; downloads: Download[] | nul
               </li>
             ))}
           </ul>
-          <p className="quiet">
-            Links expire shortly. The manifest lists a checksum for every file.
-          </p>
-        </details>
-      )}
+        )}
+        <p className="quiet">
+          Links expire shortly. The manifest lists a checksum for every file.
+        </p>
+      </details>
     </div>
   );
 }

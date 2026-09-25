@@ -14,4 +14,9 @@ public class AuditConfig {
   AuditService auditService(JdbcClient db, ObjectMapper json) {
     return new AuditService(db, json);
   }
+
+  @Bean
+  com.opentooling.loggate.audit.AuditLog auditLog(JdbcClient db, ObjectMapper json) {
+    return new com.opentooling.loggate.audit.AuditLog(db, json);
+  }
 }

@@ -93,6 +93,13 @@ if [[ "${SKIP_STACK:-0}" != "1" ]]; then
     -f "$STACK/alloy-values.yaml" \
     --wait --timeout 5m
 
+  log "Installing Prometheus (LogGate metrics, and kube_pod_info for pod listing)"
+  helm upgrade --install prometheus prometheus \
+    --repo https://prometheus-community.github.io/helm-charts \
+    --namespace "$OBS_NS" \
+    -f "$STACK/prometheus-values.yaml" \
+    --wait --timeout 10m
+
   log "Installing Grafana"
   helm upgrade --install grafana grafana \
     --repo https://grafana.github.io/helm-charts \
@@ -157,7 +164,8 @@ cat <<EOF
 
 LogGate    http://loggate.localtest.me:${HOST_PORT}
 Keycloak   http://auth.localtest.me:${HOST_PORT}        (admin / admin)
-Grafana    http://grafana.localtest.me:${HOST_PORT}      (admin / loggate)
+Grafana    http://grafana.localtest.me:${HOST_PORT}      (admin / loggate; dashboard "LogGate")
+Prometheus http://prometheus.localtest.me:${HOST_PORT}
 MinIO      http://minio.localtest.me:${HOST_PORT}        (loggate / loggate-local-dev)
 
 Seed a log-producing workload:

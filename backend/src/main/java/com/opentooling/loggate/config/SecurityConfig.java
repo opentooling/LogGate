@@ -21,6 +21,17 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 @EnableWebSecurity
 public class SecurityConfig {
 
+  /** Where someone arrives when they are not signed in. */
+  public static final String WELCOME_PAGE = "/welcome";
+
+  /** Served to anyone, signed in or not: each short path and the file behind it. */
+  static final String[] PUBLIC_PAGES = {
+    WELCOME_PAGE, "/welcome.html",
+    com.opentooling.loggate.security.SpaLogoutSuccessHandler.SIGNED_OUT_PAGE, "/signed-out.html",
+    "/guide", "/guide/", "/guide/index.html", "/guide/images/**",
+    "/site.css", "/theme-boot.js"
+  };
+
   public SecurityConfig() {}
 
   @org.springframework.beans.factory.annotation.Autowired
@@ -31,6 +42,17 @@ public class SecurityConfig {
       com.opentooling.loggate.security.CaCertificates.configureDefaultSslContext(
           java.nio.file.Path.of(properties.oidc().caCertificate()));
     }
+  }
+
+  /** A 401 for the API, and the welcome page for everyone else. */
+  static org.springframework.security.web.AuthenticationEntryPoint entryPoint() {
+    var api = new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED);
+    var welcome =
+        new org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint(
+            WELCOME_PAGE);
+    return (request, response, exception) ->
+        (request.getRequestURI().startsWith("/api/") ? api : welcome)
+            .commence(request, response, exception);
   }
 
   /**
@@ -46,17 +68,36 @@ public class SecurityConfig {
   @Bean
   SecurityFilterChain filterChain(
       HttpSecurity http,
-      com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService)
+      com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService,
+      org.springframework.security.oauth2.client.registration.ClientRegistrationRepository
+          registrations)
       throws Exception {
     return http.authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/actuator/health/**", "/actuator/info")
+                // /actuator is served on the management port only, which no
+                // Ingress or Route reaches; Prometheus scrapes it without a
+                // session. /livez and /readyz are the probes on the app port.
+                auth.requestMatchers(
+                        "/actuator/health/**", "/actuator/info", "/actuator/prometheus",
+                        "/livez", "/readyz")
+                    .permitAll()
+                    // The pages for someone not signed in: what LogGate is, how
+                    // to use it, and that they have signed out. Static, and
+                    // holding nothing that needs a session.
+                    .requestMatchers(PUBLIC_PAGES)
                     .permitAll()
                     .anyRequest()
                     .authenticated())
         .oauth2Login(
             login -> login.userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService)))
-        .logout(logout -> logout.logoutSuccessUrl("/").permitAll())
+        // Out of the identity provider as well, or the next page load signs
+        // the same person straight back in.
+        .logout(
+            logout ->
+                logout
+                    .logoutSuccessHandler(
+                        new com.opentooling.loggate.security.SpaLogoutSuccessHandler(registrations))
+                    .permitAll())
         // The SPA reads the CSRF cookie and echoes it back, so it must not be
         // HttpOnly. It is not a secret: it defends against cross-origin writes.
         //
@@ -72,12 +113,11 @@ public class SecurityConfig {
                     .csrfTokenRequestHandler(new SpaCsrfSupport.SpaCsrfTokenRequestHandler()))
         .addFilterAfter(new SpaCsrfSupport.CsrfCookieFilter(), BasicAuthenticationFilter.class)
         // An unauthenticated API call should be a 401 the SPA can act on, not a
-        // redirect to Keycloak that a fetch() cannot follow usefully.
-        .exceptionHandling(
-            handling ->
-                handling.defaultAuthenticationEntryPointFor(
-                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                    request -> request.getRequestURI().startsWith("/api/")))
+        // redirect that a fetch() cannot follow usefully. Anyone else arriving
+        // without a session lands on the welcome page, which says what LogGate
+        // is and signs them in when they ask, rather than being sent to the
+        // identity provider before they have seen anything.
+        .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint()))
         .build();
   }
 }

@@ -28,7 +28,7 @@ public class ExportEstimator {
   private static final Logger log = LoggerFactory.getLogger(ExportEstimator.class);
 
   /**
-   * How much of the range to sample when judging a line filter. Long enough to
+   * How much of the range to sample when judging a line or pod filter. Long enough to
    * be representative, short enough that the sample is not itself an export.
    */
   private static final Duration SAMPLE_WINDOW = Duration.ofMinutes(5);
@@ -69,7 +69,7 @@ public class ExportEstimator {
   }
 
   /**
-   * What the export is likely to write once the line filter is applied.
+   * What the export is likely to write once its line and pod filters apply.
    *
    * <p>Measured by reading one short window twice - with and without the
    * filter - and applying the ratio to the whole range. It is an extrapolation
@@ -80,8 +80,10 @@ public class ExportEstimator {
    *     conclusion
    */
   private Long filteredBytes(ExportRequest request, String streamSelector, long totalBytes) {
-    String filter = request.lineFilter();
-    if (filter == null || filter.isBlank() || totalBytes == 0) {
+    // Sampled whenever the query filters what the stream selector reads, by
+    // line or by pod: the volume API sizes the stream selector alone.
+    String query = SelectorBuilder.build(request, clusterLabel);
+    if (query.equals(streamSelector) || totalBytes == 0) {
       return null;
     }
 
@@ -106,7 +108,7 @@ public class ExportEstimator {
       // An empty result for the filtered query is not an unknown: it means the
       // filter matched nothing in a window that definitely held data.
       OptionalLong sampledMatching =
-          loki.sampleBytes(SelectorBuilder.build(request, clusterLabel), at, window);
+          loki.sampleBytes(query, at, window);
       double selectivity =
           sampledMatching.isEmpty()
               ? 0
@@ -115,7 +117,7 @@ public class ExportEstimator {
     } catch (RuntimeException e) {
       // A failed sample must not fail the estimate: the unfiltered number is
       // still the one that matters for admission.
-      log.warn("Could not sample the line filter's selectivity", e);
+      log.warn("Could not sample how much the filters keep", e);
       return null;
     }
   }

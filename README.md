@@ -30,14 +30,23 @@ screenshots of each step.
     group. Clusters and namespaces are discovered from Loki itself, so LogGate
     needs no access to any cluster's API.
 - **Tells clusters apart** when one Loki collects from several, by a stream
-  label such as `cluster`.
+  label such as `cluster`, and lists a cluster's namespaces only once it is
+  chosen, so opening the page never asks Loki about every cluster at once.
+- **Lists pods** from any Prometheus-compatible API (kube-state-metrics'
+  `kube_pod_info` by default; the metric and its labels are configurable),
+  for the chosen namespaces over the chosen range, so pods are picked by name
+  rather than guessed at with a pattern.
 - **Enforces quotas** before and during an export — time range, estimated bytes,
   concurrent jobs, per-team daily budget, artifact storage and retention.
 - **Extracts asynchronously.** Exports are split into time windows, fetched with
   bounded parallelism, and streamed to object storage as compressed parts.
 - **Delivers** presigned URLs plus a manifest for bulk downloads, or a proxied
   ZIP64 stream for a browser.
-- **Audits** every submission, refusal, cancellation and denied access.
+- **Audits** every submission, refusal, cancellation, denied access and
+  download, with an Audit page listing every download for administrators.
+- **Reports on itself**: Prometheus metrics on a management port that is never
+  published, a Grafana dashboard shipped with the chart, and the same picture
+  on the app's own Activity page for administrators.
 - **Runs on OpenShift** under the `restricted-v2` SCC, with a Route, and
   stores exports in any S3-compatible store, including NetApp ONTAP S3 and
   StorageGRID.
@@ -84,22 +93,23 @@ runtime must be running.
 deploy/local/deploy.sh
 ```
 
-Creates the `loggate` k3d cluster if needed, installs Loki, Alloy, Grafana and
-MinIO, builds and imports the app image, installs the chart and runs
-`helm test`.
+Creates the `loggate` k3d cluster if needed, installs Loki, Alloy, Prometheus
+(with kube-state-metrics), Grafana and MinIO, builds and imports the app image,
+installs the chart and runs `helm test`.
 
 | URL                          | What                              |
 | ---------------------------- | --------------------------------- |
-| http://loggate.localtest.me:8088  | LogGate                      |
+| http://loggate.localtest.me:8088  | LogGate; `/welcome` and `/guide` are open without signing in |
 | http://auth.localtest.me:8088     | Keycloak (realm `loggate`)   |
-| http://grafana.localtest.me:8088  | Grafana (`admin` / `loggate`)|
+| http://grafana.localtest.me:8088  | Grafana (`admin` / `loggate`), dashboard "LogGate" |
+| http://prometheus.localtest.me:8088 | Prometheus                 |
 | http://minio.localtest.me:8088    | MinIO console                |
 
 The cluster binds host port 8088 by default (`HOST_PORT` to change it), so it
 coexists with other k3d clusters already holding port 80.
 
 Re-running the script after a code change rebuilds and upgrades in place; pass
-`SKIP_STACK=1` to leave Loki, Alloy, Grafana and MinIO untouched.
+`SKIP_STACK=1` to leave Loki, Alloy, Prometheus, Grafana and MinIO untouched.
 
 ### Installing the published chart
 
@@ -125,21 +135,59 @@ access for a Keycloak group across several clusters, an external PostgreSQL,
 and NetApp ONTAP S3 behind an internal CA. It includes the Keycloak steps and
 the secrets to create.
 
+Signing out also signs out of Keycloak, which returns to
+`https://<your LogGate host>/signed-out.html`. Add `https://<your LogGate host>/*`
+to the client's **Valid post logout redirect URIs**, or Keycloak stops at an
+error page instead of returning.
+
 The settings that change how LogGate behaves:
 
 | Setting | What it does |
 | --- | --- |
 | `access.mode` | `teamLabel` (default) or `open` |
 | `access.openRole` | the client role required in open mode; open mode will not render without one |
+| `access.adminRole` | the client role (default `loggate-admin`) that opens the Activity and Audit pages, in either mode; empty makes nobody an administrator |
 | `loki.clusterLabel` | the stream label naming each log's cluster, when Loki holds several |
 | `namespaces.cluster` | this cluster's name, which team-label mode pins exports to |
 | `openshift.enabled`, `route.enabled` | run under `restricted-v2`, served by a Route |
 | `storage.checksums` | `whenRequired` (default) for S3-compatible stores; `whenSupported` for AWS only |
-| `storage.caCertificate` | a Secret with the CA to trust for the storage endpoint |
+| `storage.caCertificate`, `oidc.caCertificate`, `pods.caCertificate` | a Secret (`secretName`) or ConfigMap (`configMapName`) holding the CA to trust for storage, the identity provider, or the metrics store |
+| `pods.metricsUrl` | a Prometheus-compatible API to list pods from; empty leaves the pod pattern as the only way to narrow by pod |
+| `pods.metric`, `pods.podLabel`, `pods.namespaceLabel`, `pods.clusterLabel` | the series with one entry per pod, and its labels; `kube_pod_info`, `pod`, `namespace` and Loki's cluster label by default |
+| `pods.allowPattern` | whether pods may also be matched by a glob; `false` limits narrowing to pods picked from the list, and the API refuses a pattern |
+| `metrics.serviceMonitor.enabled`, `metrics.podAnnotations` | have the Prometheus Operator, or an annotation-driven Prometheus, scrape LogGate |
+| `metrics.dashboard.enabled` | ship the Grafana dashboard as a ConfigMap for Grafana's sidecar |
 
 Why each works as it does, including which ONTAP version is needed and why the
 SDK's default checksums are off, is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#object-storage-compatibility).
+
+### Metrics and dashboards
+
+LogGate serves Prometheus metrics at `/actuator/prometheus` on port 9090, a
+management port that the Service's `http` port, the Ingress and the Route
+never reach, so metrics are scraped without a login and still never
+published. Liveness and readiness are on the same port, and on the
+application port as `/livez` and `/readyz`.
+
+`deploy/helm/loggate/dashboards/loggate.json` is a Grafana dashboard over
+those metrics: what is in flight and whether the queue drains, submissions
+and refusals, outcomes and failure codes, bytes and entries written, window
+and Loki page latency, Loki throttling, and the JVM. It takes its Prometheus
+data source as a variable, so it imports anywhere; with
+`metrics.dashboard.enabled` the chart ships it as a ConfigMap that Grafana's
+dashboard sidecar loads by label. The local stack does exactly that.
+
+Any Prometheus-compatible store works for both, and Grafana Mimir is checked
+end to end by `deploy/local/mimir-check.sh`: set `pods.metricsUrl` to Mimir's
+query path including its `/prometheus` prefix, for example
+`http://mimir-query-frontend.mimir.svc:8080/prometheus`, and `pods.tenantId`
+to the tenant the metrics were written under. Without the tenant Mimir refuses
+the query, and the page falls back to the pod pattern.
+
+The app's own **Activity** page, for holders of `access.adminRole`, answers
+the same questions from PostgreSQL rather than Prometheus, so it is exact
+across replicas and restarts, and works where no metrics stack is installed.
 
 ### End-to-end checks
 
@@ -148,9 +196,11 @@ e2e/auth-flow.sh        # authentication and the authorization matrix
 e2e/export-estimate.sh  # export sizing and the published quota
 e2e/export-run.sh       # an export run to completion, with parts in MinIO
 e2e/retention.sh        # download links expire; retention deletes the data
+e2e/pods-and-metrics.sh # pods listed from kube-state-metrics, activity, the Grafana dashboard
 e2e/open-access.sh      # the cluster pin, and open mode: role, discovery, exact export
 e2e/quota-budget.sh     # the per-team daily budget, refused and restored
 deploy/local/openshift-check.sh   # OpenShift mode under restricted Pod Security, random UIDs
+deploy/local/mimir-check.sh       # pod listing and the dashboard against Grafana Mimir
 
 cd ui && npx playwright test   # the UI, through the real login and a real export
 ```
@@ -198,15 +248,16 @@ empty exports and nonsense durations while still passing.
 Local only, all with password `loggate`. They exist to exercise the
 authorization matrix rather than to look realistic:
 
-| User    | Groups                             | Team-label mode | Open mode  |
-| ------- | ---------------------------------- | --------------- | ---------- |
-| `alice` | `ad-platform-dev`, `log-exporters` | `platform-dev`  | everything |
-| `bob`   | `ad-payments-dev`                  | `payments-dev`  | nothing    |
-| `carol` | both teams, `log-exporters`        | both            | everything |
-| `dave`  | none                               | nothing         | nothing    |
+| User    | Groups                                               | Team-label mode | Open mode  | Activity and Audit |
+| ------- | ---------------------------------------------------- | --------------- | ---------- | ------------------ |
+| `alice` | `ad-platform-dev`, `log-exporters`                   | `platform-dev`  | everything | no                 |
+| `bob`   | `ad-payments-dev`                                    | `payments-dev`  | nothing    | no                 |
+| `carol` | both teams, `log-exporters`, `loggate-admins`        | both            | everything | yes                |
+| `dave`  | none                                                 | nothing         | nothing    | no                 |
 
-`log-exporters` is granted the `export-logs` client role, the way a real realm
-would grant it, so open mode is exercised through group membership.
+`log-exporters` is granted the `export-logs` client role and `loggate-admins`
+the `loggate-admin` role, the way a real realm would grant them, so both are
+exercised through group membership.
 
 Keycloak admin console is `admin` / `admin`.
 

@@ -115,7 +115,10 @@ public class DeliveryService {
         .append("SUMS\n")
         .append("shasum -a 256 -c SHA256SUMS\n\n")
         .append("# Read them in order:\n")
-        .append("#   zcat *.jsonl.gz | jq .\n");
+        .append(
+            job.format() == com.opentooling.loggate.export.OutputFormat.RAW
+                ? "#   zcat *.log.gz | less\n"
+                : "#   zcat *.jsonl.gz | jq .\n");
     return script.toString();
   }
 

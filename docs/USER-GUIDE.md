@@ -23,6 +23,7 @@ deployment with demo data.
 - [Estimate first](#estimate-first)
 - [Your allowance](#your-allowance)
 - [While it runs](#while-it-runs)
+- [Activity and audit, for administrators](#activity-and-audit-for-administrators)
 - [Downloading](#downloading)
 - [What is in an export](#what-is-in-an-export)
 - [When something goes wrong](#when-something-goes-wrong)
@@ -32,9 +33,11 @@ deployment with demo data.
 ## Signing in
 
 LogGate uses your organisation's single sign-on (Keycloak). Open LogGate and
-you are sent to the usual sign-in page; there is no separate LogGate password.
+choose **Sign in with single sign-on**. There is no separate LogGate password.
 
 <img alt="The Keycloak sign-in page" src="images/01-sign-in.png" width="640">
+
+**Sign out** also signs you out of single sign-on.
 
 ## What you can export
 
@@ -75,8 +78,14 @@ LogGate cannot see any of them directly.
 
 <img alt="Open access: two clusters on offer, edge-eu chosen, its namespaces listed, and an estimate across both" src="images/10-open-access.png" width="360" align="right">
 
-- **Clusters.** Tick the clusters you want. The namespaces listed follow what
-  you tick: each cluster has its own. Ticking none means every cluster.
+- **Clusters.** Choose at least one. Its namespaces are listed once you
+  have: asking Loki for every namespace in every cluster is the most
+  expensive question the page could ask, and nobody reads that list before
+  picking a cluster anyway. A long list of clusters is grouped into the
+  families their names already follow (`prod-eu-west-1` and `prod-eu-west-2`
+  are both `prod-eu-west`), each family with a tick box for the whole of it,
+  and there is a filter box and a *Select all* for when you really mean every
+  cluster.
 - **Namespaces.** Tick the ones you want, or none for every namespace in the
   clusters you chose. The form says which you are about to get, and the
   estimate shows the size before anything runs.
@@ -100,19 +109,48 @@ Losing the role also stops you downloading exports you made while you held it.
 logs: fixed to one in the team mode, a choice in open mode.
 
 **Namespaces.** Tick one or more. Each shows the team that owns it. In open
-mode a long list gets a filter box, and ticking none means every namespace.
+mode ticking none means every namespace.
+
+A short list of clusters, namespaces or pods is shown whole, one click per
+choice. A long one is a single field that says what you have chosen; click it
+for a searchable list. Type to filter, press Enter to pick the first match,
+use the arrow keys to move, or *Select all* and *Clear*; Escape or *Done*
+closes it. What you have chosen stays shown under the field, each with a ×
+to remove it, so the form stays the same length however many there are.
 
 **Time range.** Use a preset or set *From* and *To* yourself. The length of
 the range is shown next to the heading as you change it. The presets stop at
 two days on purpose: exports are for bulk retrieval, and anything measured in
 minutes is quicker to find in Grafana.
 
-**Narrow it down.** Both are optional.
+**Pods** (optional). Where LogGate has been connected to a metrics store,
+choosing namespaces lists the pods that ran in them **during the range you
+chose**, grouped by namespace, and you tick the ones you want. Nobody
+remembers pod names, and a pod replaced yesterday is exactly the one you are
+looking for. Change the namespaces or the range and the list follows.
 
-- **Pods** is a glob such as `api-*` or `checkout-*-worker`, not a regular
-  expression. Empty means every pod in the namespaces you ticked.
-- **Line contains** keeps only lines containing that text, matched literally.
-  `timeout` finds `timeout`, not a pattern.
+<img alt="The pods that ran in two namespaces, grouped by namespace, with one ticked" src="images/12-pods.png" width="360">
+
+*Match a pattern* switches to a glob such as `api-*` or `checkout-*-worker`
+instead: not a regular expression. It is the way to say "every api pod,
+including ones not started yet", and the only way where no metrics store is
+connected. Empty, or nothing ticked, means every pod. Your operator can
+switch patterns off, in which case *Match a pattern* is not offered and pods
+are picked from the list or not narrowed at all.
+
+**Line contains** (optional) keeps only lines containing that text, matched
+literally. `timeout` finds `timeout`, not a pattern.
+
+**Output.** *JSON lines* (the default) writes each entry as a JSON object
+with its timestamp, its labels and the line, so nothing is lost and it reads
+with `jq`. *Raw log lines* writes the lines exactly as they were logged, one
+per line, for `grep` and `less`; no timestamps or labels are added, so lines
+from different pods cannot be told apart unless they say so themselves. See
+[What is in an export](#what-is-in-an-export).
+
+The buttons stay at the bottom of the screen however long the form gets, with
+a one-line summary of what you have chosen beside them, such as
+`2 clusters · 3 namespaces · 1 pod · 6h`.
 
 You never write a query. LogGate builds it from these choices and shows you
 what it built (see [Estimate first](#estimate-first)).
@@ -156,8 +194,9 @@ only shows you the answer first.
 
 ## Your allowance
 
-Open **Your allowance** at the bottom of the form to see the limits you are
-working within, and how much of each is used:
+**Your allowance** is at the top of the form: how much of each budget you have
+used, and how many of your exports are running. Open *Limits* under it for the
+rest of the limits you are working within:
 
 <img alt="The allowance panel: a budget bar per team and the limits in words" src="images/04-allowance.png" width="340">
 
@@ -201,6 +240,44 @@ Each export moves through these states:
 **Cancel** stops an export between pages of results, usually within seconds.
 
 The list shows your eight most recent exports, with a button to show older ones.
+
+## Activity and audit, for administrators
+
+Administrators, who hold LogGate's administrator role (`loggate-admin` unless
+your operator chose another name), see two more tabs. Nobody else sees them,
+and a link to one opens the export form instead.
+
+The **Activity** tab shows how exporting has gone for everyone on this
+LogGate, over the last day, week or month: what is in flight right now, how
+many exports were accepted, finished, failed or refused, how much was
+written, how long exports take to become ready, and why the ones that failed
+did. It is counts only: nobody's exports or namespaces are named. The link
+(`#activity`) opens it directly.
+
+<img alt="The activity page: tiles for what is in flight and the day's totals, and charts of outcomes, submissions, volume and failure reasons" src="images/13-activity.png" width="720">
+
+Operators have the same picture, and more, in Grafana: see
+[the metrics section of the README](../README.md#metrics-and-dashboards).
+
+The **Audit** tab (`#audit`) lists every time an export's data was handed to
+someone, newest first: who, when, from which address, which export with its
+clusters and namespaces, and how.
+
+<img alt="The audit page: totals by kind of download, a filter, and a table of downloads with who, how, what, size and address" src="images/14-audit.png" width="720">
+
+*How* is recorded as precisely as LogGate can know it:
+
+- **Downloaded .zip.** The archive streamed through LogGate itself. Recorded
+  as the download starts, because one abandoned halfway still handed over
+  half the data.
+- **Took the script** and **Opened the file links.** Each hands out links to
+  the files, which are then fetched from storage directly, where LogGate
+  never sees them. So these record that the links were issued, which is the
+  last point LogGate can vouch for. The links to individual files are asked
+  for only when someone opens *The files, individually* on a finished
+  export, so looking at the page is not mistaken for a download.
+
+The filter searches what is loaded; *Show older* loads further back.
 
 ## Downloading
 
@@ -253,6 +330,7 @@ offering an empty download, and suggests what to check.
 | --- | --- |
 | `manifest.json` | What the export is: the query and range it came from, the namespaces, entry and byte counts, and for every part its time window, size and SHA-256 checksum. It also lists any **caveats**, such as a range ending within the last 15 minutes, where some entries may still have been in transit to storage. |
 | `000000.jsonl.gz`, `000001.jsonl.gz`, … | The logs, as gzipped JSON lines, one entry per line. The files are numbered in time order, and entries are in time order within each file. |
+| `000000.log.gz`, `000001.log.gz`, … | The same, for an export made with *Raw log lines*: each line is the log line itself, nothing added. `zcat *.log.gz \| less` reads them in order. |
 
 Each line is one log entry. This one, from the demo data, is spread over
 several lines here to make it readable:
@@ -302,6 +380,12 @@ If an export fails, the reason is shown on the export in plain English.
 | *This export produced more data than it was admitted for.* | It grew past the cap it was started with. | Narrow the time range or the pod pattern and try again. |
 | *Loki stopped responding while this export was running.* | Loki kept failing after several retries. | It is safe to run it again. |
 | *The export could not be written to storage.* | Object storage refused the files. | Tell whoever runs LogGate; this is not caused by your request. |
+
+A finished export can say **You can no longer download this export** in place
+of its download buttons. The files are there, but LogGate checks your access
+again whenever anything is downloaded, and you no longer have access to all of
+the export's namespaces: your team changed, or it was made while LogGate ran
+in a different access mode. Someone with access can run it again.
 
 An export can also be **refused before it starts**, with the reason given at
 once: a range or size over the limit, too many exports already running, or your

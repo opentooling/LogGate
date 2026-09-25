@@ -1,19 +1,10 @@
 package com.opentooling.loggate.web;
 
-import com.opentooling.loggate.authz.AccessDecision;
-import com.opentooling.loggate.authz.AuthorizationGate;
-import com.opentooling.loggate.authz.NamespaceAccess;
-import com.opentooling.loggate.export.ExportEstimate;
-import com.opentooling.loggate.export.ExportRequest;
-import com.opentooling.loggate.delivery.DeliveryService;
-import com.opentooling.loggate.export.ExportService;
-import com.opentooling.loggate.jobs.ExportJob;
-import com.opentooling.loggate.jobs.JobState;
-import com.opentooling.loggate.security.AuthenticatedUser;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -25,6 +16,24 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import com.opentooling.loggate.audit.AuditAction;
+import com.opentooling.loggate.audit.AuditService;
+import com.opentooling.loggate.authz.AccessDecision;
+import com.opentooling.loggate.authz.AuthorizationGate;
+import com.opentooling.loggate.authz.NamespaceAccess;
+import com.opentooling.loggate.delivery.DeliveryService;
+import com.opentooling.loggate.export.ExportEstimate;
+import com.opentooling.loggate.export.ExportRequest;
+import com.opentooling.loggate.export.ExportService;
+import com.opentooling.loggate.jobs.ExportJob;
+import com.opentooling.loggate.jobs.JobState;
+import com.opentooling.loggate.security.AuthenticatedUser;
+
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+
 @RestController
 @RequestMapping("/api/exports")
 public class ExportController {
@@ -33,16 +42,26 @@ public class ExportController {
   private final NamespaceAccess access;
   private final ExportService exports;
   private final DeliveryService delivery;
+  private final AuditService audit;
+  private final boolean podPatternAllowed;
 
+  /**
+   * @param podPatternAllowed whether a request may match pods by pattern, or
+   *     must name them; set by {@code loggate.pods.allow-pattern}
+   */
   public ExportController(
       AuthorizationGate authorization,
       NamespaceAccess access,
       ExportService exports,
-      DeliveryService delivery) {
+      DeliveryService delivery,
+      AuditService audit,
+      boolean podPatternAllowed) {
     this.authorization = authorization;
     this.access = access;
     this.exports = exports;
     this.delivery = delivery;
+    this.audit = audit;
+    this.podPatternAllowed = podPatternAllowed;
   }
 
   /**
@@ -55,6 +74,14 @@ public class ExportController {
     }
     if (access.requiresNamespaces() && request.namespaces().isEmpty()) {
       return "choose at least one namespace";
+    }
+    if (request.hasPodsAndPattern()) {
+      return "pick pods or give a pod pattern, not both";
+    }
+    // Enforced here, not only by hiding the field: the setting would mean
+    // nothing if a request could simply carry a pattern anyway.
+    if (!podPatternAllowed && request.podPattern() != null && !request.podPattern().isBlank()) {
+      return "pod patterns are switched off here: pick pods from the list";
     }
     return null;
   }
@@ -134,11 +161,38 @@ public class ExportController {
     }
   }
 
-  /** The caller's exports, most recent first. */
+  /**
+   * The caller's own exports, newest first, each saying whether it can still
+   * be downloaded.
+   *
+   * <p>Access is re-checked at download, so an export made under access since
+   * lost, or in another access mode, is finished but not the caller's to take.
+   * Saying so here lets the page explain that instead of offering buttons that
+   * can only be refused. Checked without auditing: looking at the list is not
+   * an attempt to take anything, and the download itself is still refused and
+   * recorded if tried.
+   */
   @GetMapping
-  public List<ExportJob> list(@AuthenticationPrincipal OidcUser principal) {
-    return exports.listFor(AuthenticatedUser.from(principal), 50);
+  public List<ListedJob> list(@AuthenticationPrincipal OidcUser principal) {
+    AuthenticatedUser user = AuthenticatedUser.from(principal);
+    return exports.listFor(user, 50).stream()
+        .map(
+            job ->
+                new ListedJob(
+                    job,
+                    job.state() != JobState.READY
+                        || access.authorize(user, job.clusters(), job.namespaces()).isFullyAllowed()))
+        .toList();
   }
+
+  /**
+   * An export as the list shows it.
+   *
+   * @param job the export
+   * @param downloadable whether its files may be taken by the caller now;
+   *     always true for an export that is not finished, which has nothing to take
+   */
+  public record ListedJob(@JsonUnwrapped ExportJob job, boolean downloadable) {}
 
   /** One export's progress. */
   @GetMapping("/{id}")
@@ -165,21 +219,56 @@ public class ExportController {
         : ResponseEntity.status(404).body(new ApiError("no such export, or it already finished"));
   }
 
-  /** The files of a finished export, each with a short-lived download URL. */
+  /**
+   * The files of a finished export, each with a short-lived download URL. Audited, because handing out a link is
+   * handing out the data: the file itself is fetched from object storage,
+   * where LogGate never sees it.
+   */
   @GetMapping("/{id}/downloads")
   public List<DeliveryService.Download> downloads(
-      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID id) {
-    return delivery.downloadsFor(requireDownloadableJob(principal, id));
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID id,
+      HttpServletRequest httpRequest) {
+    ExportJob job = requireDownloadableJob(principal, id);
+    List<DeliveryService.Download> files = delivery.downloadsFor(job);
+    recordDownload(principal, job, AuditAction.DOWNLOAD_LINKS_ISSUED, files.size(), httpRequest);
+    return files;
   }
 
   /** A script that downloads every file and verifies it, for bulk retrieval. */
   @GetMapping(value = "/{id}/download.sh", produces = "text/x-shellscript")
   public ResponseEntity<String> downloadScript(
-      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID id) {
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID id,
+      HttpServletRequest httpRequest) {
     ExportJob job = requireDownloadableJob(principal, id);
+    List<DeliveryService.Download> files = delivery.downloadsFor(job);
+    recordDownload(principal, job, AuditAction.DOWNLOAD_SCRIPT_ISSUED, files.size(), httpRequest);
     return ResponseEntity.ok()
         .header("Content-Disposition", "attachment; filename=\"loggate-" + id + "-download.sh\"")
-        .body(delivery.downloadScript(job, delivery.downloadsFor(job)));
+        .body(delivery.downloadScript(job, files));
+  }
+
+  /**
+   * One row per hand-over, carrying what the export was rather than pointing
+   * at it: the job can expire, and the record of who took it must not.
+   */
+  private void recordDownload(
+      OidcUser principal,
+      ExportJob job,
+      AuditAction action,
+      Integer files,
+      HttpServletRequest httpRequest) {
+    AuthenticatedUser user = AuthenticatedUser.from(principal);
+    Map<String, Object> detail = new LinkedHashMap<>();
+    detail.put("name", user.name());
+    detail.put("namespaces", job.namespaces());
+    detail.put("clusters", job.clusters());
+    detail.put("bytes", job.bytesWritten());
+    if (files != null) {
+      detail.put("files", files);
+    }
+    audit.record(user.subject(), action, job.id(), detail, ClientAddress.of(httpRequest));
   }
 
   /**
@@ -190,10 +279,15 @@ public class ExportController {
    */
   @GetMapping(value = "/{id}/archive.zip", produces = "application/zip")
   public ResponseEntity<StreamingResponseBody> archive(
-      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID id) {
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID id,
+      HttpServletRequest httpRequest) {
     // The return type has to name StreamingResponseBody: with a wildcard,
     // Spring cannot tell this is a stream and tries to serialise it instead.
     ExportJob job = requireDownloadableJob(principal, id);
+    // Recorded as the stream starts, not when it ends: a download abandoned
+    // halfway has still handed over half the data.
+    recordDownload(principal, job, AuditAction.ARCHIVE_DOWNLOADED, null, httpRequest);
     StreamingResponseBody body = out -> delivery.streamArchive(job, out);
     return ResponseEntity.ok()
         .header("Content-Disposition", "attachment; filename=\"loggate-" + id + ".zip\"")

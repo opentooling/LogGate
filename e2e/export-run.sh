@@ -96,5 +96,28 @@ r="$(api "$JAR" GET /api/exports)"
 check "the caller sees their own exports" "200" "$(status "$r")"
 check_at_least "including the ones just submitted" 2 "$(body "$r" | jq_get 'len(d)')"
 
+# --- raw output ---------------------------------------------------------------
+echo
+echo "an export can hold the raw log lines instead of JSON"
+r="$(api "$JAR" POST /api/exports \
+  "{\"namespaces\":[\"platform-dev\"],\"podPattern\":\"platform-api-*\",\"format\":\"RAW\",\"from\":\"$FROM\",\"to\":\"$TO\"}")"
+check "a raw export is accepted" "201" "$(status "$r")"
+RAW_ID="$(body "$r" | jq_get 'd["id"]')"
+check "and says so" "RAW" "$(body "$r" | jq_get 'd["format"]')"
+state=""
+for _ in $(seq 1 60); do
+  state="$(body "$(api "$JAR" GET "/api/exports/$RAW_ID")" | jq_get 'd["state"]')"
+  [[ "$state" == "READY" || "$state" == "FAILED" || "$state" == "CANCELLED" ]] && break
+  sleep 2
+done
+check "it finishes ready" "READY" "$state"
+r="$(api "$JAR" GET "/api/exports/$RAW_ID/downloads")"
+check "its parts are named as plain logs" "yes" \
+  "$(body "$r" | jq_get '"yes" if any(f["name"].endswith(".log.gz") for f in d) and not any(f["name"].endswith(".jsonl.gz") for f in d) else "no"')"
+PART_URL="$(body "$r" | jq_get 'next(f["url"] for f in d if f["name"].endswith(".log.gz"))')"
+first_line="$(curl -s "$PART_URL" | gunzip 2>/dev/null | head -1)"
+check "and hold the lines as logged, not wrapped in JSON" "no" \
+  "$([[ "$first_line" == \{\"timestamp* || "$first_line" == \{\"labels* || -z "$first_line" ]] && echo yes || echo no)"
+
 rm -f "$JAR"
 summary

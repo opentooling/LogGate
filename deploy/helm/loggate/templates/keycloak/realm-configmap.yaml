@@ -14,6 +14,14 @@
 {{- $groups = append $groups (dict
       "name" $roleGroup.name
       "clientRoles" (dict .Values.oidc.clientId (list $roleGroup.role))) -}}
+{{- /* The administrator role, granted the same way. */ -}}
+{{- $adminGroup := .Values.keycloak.adminGroup | default dict -}}
+{{- $adminRole := .Values.access.adminRole -}}
+{{- if and $adminRole $adminGroup.name -}}
+{{- $groups = append $groups (dict
+      "name" $adminGroup.name
+      "clientRoles" (dict .Values.oidc.clientId (list $adminRole))) -}}
+{{- end -}}
 {{- /* Seeded users carry a complete profile and no required actions: an
        incomplete profile triggers Keycloak's VERIFY_PROFILE screen on first
        login, which stalls any scripted or automated sign-in. */ -}}
@@ -26,6 +34,9 @@
 {{- end -}}
 {{- if has .username $roleGroup.members -}}
 {{- $userGroups = append $userGroups (printf "/%s" $roleGroup.name) -}}
+{{- end -}}
+{{- if and $adminRole $adminGroup.name (has .username ($adminGroup.members | default list)) -}}
+{{- $userGroups = append $userGroups (printf "/%s" $adminGroup.name) -}}
 {{- end -}}
 {{- $users = append $users (dict
       "username" .username
@@ -44,9 +55,12 @@
       "sslRequired" "none"
       "groups" $groups
       "users" $users
-      "roles" (dict "client" (dict .Values.oidc.clientId (list (dict
+      "roles" (dict "client" (dict .Values.oidc.clientId (concat (list (dict
         "name" $roleGroup.role
-        "description" "May export any log LogGate can reach, in open access mode"))))
+        "description" "May export any log LogGate can reach, in open access mode"))
+        (ternary (list (dict
+          "name" $adminRole
+          "description" "May see the activity dashboard and the download audit trail")) (list) (ne $adminRole "")))))
       "clients" (list (dict
         "clientId" .Values.oidc.clientId
         "enabled" true
@@ -57,6 +71,7 @@
         "directAccessGrantsEnabled" false
         "serviceAccountsEnabled" false
         "redirectUris" (list (printf "%s/*" $appUrl))
+        "attributes" (dict "post.logout.redirect.uris" (printf "%s/*" $appUrl))
         "webOrigins" (list $appUrl)
         "protocolMappers" (list (dict
           "name" "groups"

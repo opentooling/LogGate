@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LogGate · Bulk log export</title>
+    <meta name="description" content="Export logs from Grafana Loki in bulk, sized before they run and checked against who you are." />
+    <link rel="stylesheet" href="/site.css" />
+    <script src="/theme-boot.js"></script>
+  </head>
+  <body>
+    <header class="site-head">
+      <a class="brand" href="/welcome"><span class="mark" aria-hidden="true">L</span>LogGate</a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="/guide">Guide</a>
+        <a class="button small primary" href="/oauth2/authorization/keycloak">Sign in</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <h1>Bulk log export from Loki.</h1>
+          <p class="lead">Choose the logs, see the size, download the files.</p>
+          <div class="cta">
+            <a class="button primary" href="/oauth2/authorization/keycloak">Sign in with single sign-on</a>
+            <a class="button" href="/guide">Read the guide</a>
+          </div>
+        </div>
+        <figure class="shot">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="/guide/images/00-overview-dark.png" />
+            <img
+              src="/guide/images/00-overview-light.png"
+              alt="LogGate with an export running and a finished one ready to download"
+              width="1280"
+              height="800"
+            />
+          </picture>
+        </figure>
+      </section>
+
+      <section class="features" aria-label="What it does">
+        <div class="feature">
+          <span class="icon" aria-hidden="true">1</span>
+          <h2>Choose</h2>
+          <p>Clusters, namespaces, pods and a time range. No queries to write.</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true">2</span>
+          <h2>Estimate</h2>
+          <p>See how big an export is before it runs.</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true">3</span>
+          <h2>Download</h2>
+          <p>A .zip or a download script. JSON lines or raw logs.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-foot">
+      <span>LogGate</span>
+      <a href="/guide">Guide</a>
+    </footer>
+  </body>
+</html>
