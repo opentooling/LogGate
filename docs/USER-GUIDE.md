@@ -20,7 +20,7 @@ deployment with demo data.
 - [Signing in](#signing-in)
 - [What you can export](#what-you-can-export)
 - [Making an export](#making-an-export)
-- [Estimate first](#estimate-first)
+- [The size, before it runs](#the-size-before-it-runs)
 - [Your allowance](#your-allowance)
 - [While it runs](#while-it-runs)
 - [Activity and audit, for administrators](#activity-and-audit-for-administrators)
@@ -61,12 +61,12 @@ relabelled a minute ago is already reflected. A namespace with no team label is
 never offered to anyone.
 
 If you are not in any owning group, LogGate says so rather than showing an
-empty form:
+empty page:
 
 <img alt="A user in no team is told there is nothing to export and who to ask" src="images/08-no-namespaces.png" width="720">
 
 When your Loki holds more than one cluster's logs, this mode exports only from
-the cluster LogGate runs in, which the form shows at the top. It is the only
+the cluster LogGate runs in, shown as the first item of the query bar. It is the only
 cluster whose namespace owners LogGate can check: another cluster's
 `platform-dev` may belong to someone else entirely.
 
@@ -104,100 +104,66 @@ Losing the role also stops you downloading exports you made while you held it.
 
 ## Making an export
 
-<img alt="The new export form with two namespaces selected and an estimate shown" src="images/03-estimate.png" width="360" align="right">
+<img alt="The query bar: cluster, namespaces, pods, time range, text filter and output, with the size and Start export beneath" src="images/03-estimate.png" width="720">
 
-**Cluster.** Shown at the top when your Loki holds more than one cluster's
-logs: fixed to one in the team mode, a choice in open mode.
+An export is one line of choices, the **query bar**. Each part says what is
+chosen; click it to change it. You never write a query: LogGate builds it
+from these choices and shows you what it built under *Details*.
 
-**Namespaces.** Tick one or more. Each shows the team that owns it. In open
-mode ticking none means every namespace.
+- **Cluster** (or **Clusters** in open mode). In team mode it is fixed to the
+  cluster LogGate runs in. In open mode, choose at least one; a long list is
+  grouped into the families its names follow, such as `prod-eu-west`, each
+  with a tick box for the whole family.
+- **Namespaces.** Each shows the team that owns it. In open mode none chosen
+  means every namespace in the clusters you chose.
+- **Pods** (optional). Where LogGate is connected to a metrics store, this
+  lists the pods that ran in your namespaces **during your time range**,
+  grouped by namespace. *Match a pattern* takes a glob such as `api-*`
+  instead, for pods that have not started yet or where there is no list.
+  Your operator can switch patterns off.
+- **When.** A preset, or *From* and *To* of your own. The presets stop at two
+  days on purpose: exports are for bulk retrieval, and anything measured in
+  minutes is quicker to find in Grafana. A range longer than one export may
+  cover is caught here, as you choose it.
+- **Contains** (optional) keeps only lines containing that text, matched
+  literally. `timeout` finds `timeout`, not a pattern.
+- **Output.** *JSON lines* (the default) writes each entry with its
+  timestamp, its labels and the line, and reads with `jq`. *Raw log lines*
+  writes the lines exactly as logged, for `grep` and `less`. See
+  [What is in an export](#what-is-in-an-export).
 
-A short list of clusters, namespaces or pods is shown whole, one click per
-choice. A long one is a single field that says what you have chosen; click it
-for a searchable list. Type to filter, press Enter to pick the first match,
-use the arrow keys to move, or *Select all* and *Clear*; Escape or *Done*
-closes it. What you have chosen stays shown under the field, each with a ×
-to remove it, so the form stays the same length however many there are.
+Every list opens with a search box once it is long: type to filter, press
+Enter to pick the first match, use the arrow keys to move, or *Select all*
+and *Clear*. Escape or *Done* closes it.
 
-**Time range.** Use a preset or set *From* and *To* yourself. The length of
-the range is shown next to the heading as you change it. The presets stop at
-two days on purpose: exports are for bulk retrieval, and anything measured in
-minutes is quicker to find in Grafana.
+<img alt="The pods that ran in two namespaces, grouped by namespace" src="images/12-pods.png" width="400">
+<img alt="A three-day range is refused as it is chosen, with the two-day limit stated" src="images/05-range-limit.png" width="340">
 
-**Pods** (optional). Where LogGate has been connected to a metrics store,
-choosing namespaces lists the pods that ran in them **during the range you
-chose**, grouped by namespace, and you tick the ones you want. Nobody
-remembers pod names, and a pod replaced yesterday is exactly the one you are
-looking for. Change the namespaces or the range and the list follows.
+## The size, before it runs
 
-<img alt="The pods that ran in two namespaces, grouped by namespace, with one ticked" src="images/12-pods.png" width="360">
+As soon as your choices are complete, LogGate asks Loki how much data they
+cover, **before any of it is read**, and shows the answer beside **Start
+export**. Change anything and it is asked again, so the number always matches
+what is on screen. This is the moment to find out an export is 40 GB rather
+than after waiting for it.
 
-*Match a pattern* switches to a glob such as `api-*` or `checkout-*-worker`
-instead: not a regular expression. It is the way to say "every api pod,
-including ones not started yet", and the only way where no metrics store is
-connected. Empty, or nothing ticked, means every pod. Your operator can
-switch patterns off, in which case *Match a pattern* is not offered and pods
-are picked from the list or not narrowed at all.
-
-**Line contains** (optional) keeps only lines containing that text, matched
-literally. `timeout` finds `timeout`, not a pattern.
-
-**Output.** *JSON lines* (the default) writes each entry as a JSON object
-with its timestamp, its labels and the line, so nothing is lost and it reads
-with `jq`. *Raw log lines* writes the lines exactly as they were logged, one
-per line, for `grep` and `less`; no timestamps or labels are added, so lines
-from different pods cannot be told apart unless they say so themselves. See
-[What is in an export](#what-is-in-an-export).
-
-The buttons stay at the bottom of the screen however long the form gets, with
-a one-line summary of what you have chosen beside them, such as
-`2 clusters · 3 namespaces · 1 pod · 6h`.
-
-You never write a query. LogGate builds it from these choices and shows you
-what it built (see [Estimate first](#estimate-first)).
-
-A range longer than one export may cover is caught in the form, where you can
-still change it, rather than after you submit:
-
-<img alt="A three-day range is refused in the form with the two-day limit stated" src="images/05-range-limit.png" width="340">
-
-<br clear="right">
-
-## Estimate first
-
-**Estimate first** asks Loki how much data your choices cover, **before any of
-it is read**. This is the moment to find out an export is 40 GB rather than
-after waiting for it.
-
-The estimate card shows:
-
-- **The size to download**, in large type. With a *Line contains* filter this
-  is extrapolated from a sample of the range and says so.
-- **What is read from Loki**, when a filter is set. Loki has to read the whole
-  stream before the filter can drop lines, so this is larger than the download
-  and is what quota is judged on.
-- **How many files** the export will produce, and roughly how large each is.
-- **A breakdown per namespace**, when you picked more than one.
-- **What will be queried**: the exact LogQL generated from your choices,
-  the size of the time windows it is extracted in, and the cap the job runs
-  under. An export that grows past its cap stops rather than running on.
-- **Whether it would be allowed.** If quota would refuse it, the card turns red
-  and says why, for example that it is over the size allowed for one export. The
-  final decision is made when you start it, so a refusal because too many
-  exports are running may have cleared by then.
-
-Once you have an estimate, the start button names the size: **Start export
-(1.3 GB)**. Changing anything on the form clears the estimate, so the number
-you see always matches the choices on screen.
-
-You can start without estimating. The same checks run either way; estimating
-only shows you the answer first.
+- **The size to download**, in large type, and how many files it makes. With
+  a *Contains* filter or chosen pods, it is extrapolated from a sample of the
+  range and says so.
+- **Details** shows the size per namespace, what is read from Loki when a
+  filter is set (Loki reads the whole stream before a filter can drop lines,
+  and quota is judged on that), the exact query, the size of the time windows
+  it is extracted in, and the cap the export runs under.
+- **Whether it would be allowed.** If quota would refuse it, the reason
+  appears in red and *Start export* is not offered. The final decision is made
+  when you start it, so a refusal because too many exports are running may
+  have cleared by then.
 
 ## Your allowance
 
-**Your allowance** is at the top of the form: how much of each budget you have
-used, and how many of your exports are running. Open *Limits* under it for the
-rest of the limits you are working within:
+**Allowance**, beside *Start export*, shows how much of your budget is used and
+how many of your exports are running. Click it for each budget and the limits
+you are working within:
 
 <img alt="The allowance panel: a budget bar per team and the limits in words" src="images/04-allowance.png" width="340">
 
@@ -220,23 +186,27 @@ on, and it will be in the list when you come back.
 
 <img alt="A running export: progress bar, windows completed and time remaining" src="images/06-running.png" width="720">
 
-A running export shows how many of its time windows are done, how many entries
-and how much data it has written so far, its average speed, and roughly how
-long is left. The time left is worked out from how long the finished windows
+Your exports are in the table under the query bar. *Active* shows what is
+running, *Finished* what has ended, and *All* both; the search box finds an
+export by namespace, cluster, state or format. A running export shows how many
+of its time windows are done and roughly how long is left. The time left is worked out from how long the finished windows
 took, so it settles down after the first few.
 
 Each export moves through these states:
 
 | State | Meaning |
 | --- | --- |
-| `QUEUED` | Accepted, waiting to be planned. |
-| `PLANNED` | Split into time windows, waiting for a worker. |
-| `RUNNING` | Windows are being extracted. |
-| `FINALIZING` | Every window is done; the manifest is being written. |
-| `READY` | Files are available to download. |
-| `FAILED` | Stopped, with the reason shown in plain English. |
-| `CANCELLED` | Stopped at your request. Anything it had written is deleted. |
-| `EXPIRED` | Its files have reached the end of their retention and been deleted. |
+| Queued | Accepted, waiting to be planned. |
+| Planned | Split into time windows, waiting for a worker. |
+| Running | Windows are being extracted. |
+| Finalizing | Every window is done; the manifest is being written. |
+| Ready | Files are available to download. |
+| Failed | Stopped; the reason is shown, with the full explanation on hover. |
+| Cancelled | Stopped at your request. Anything it had written is deleted. |
+| Expired | Its files have reached the end of their retention and been deleted. |
+
+**Run again** on a finished export fills the query bar with its clusters,
+namespaces and format, over the same length of time ending now.
 
 **Cancel** stops an export between pages of results, usually within seconds.
 
@@ -284,8 +254,8 @@ The filter searches what is loaded; *Show older* loads further back.
 
 <img alt="A ready export with its download options and its individual files listed" src="images/07-ready.png" width="720">
 
-A ready export offers three ways to collect it. LogGate recommends one based
-on the size, by highlighting it:
+**Download** on a ready export offers three ways to collect it. LogGate
+recommends one based on the size, by putting it in bold:
 
 | Size | Recommended | Why |
 | --- | --- | --- |
@@ -430,7 +400,7 @@ timestamp and labels, which the estimate does not count. The manifest notes it
 when an export came out larger than predicted.
 
 **Can I write my own LogQL?**
-No, on purpose. Choices made in the form can be sized, authorised and bounded
+No, on purpose. Choices made in the query bar can be sized, authorised and bounded
 before anything runs; a free-form query cannot. For exploring logs
 interactively, use Grafana.
 
