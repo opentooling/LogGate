@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const PASSWORD = process.env.DEMO_PASSWORD ?? "loggate";
 
@@ -10,50 +10,71 @@ async function signIn(page: Page, username: string) {
   await page.fill("#username", username);
   await page.fill("#password", PASSWORD);
   await page.click("#kc-form-login button[type=submit], #kc-login");
-  await expect(page.getByRole("heading", { name: "LogGate" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Views" })).toBeVisible();
+}
+
+/** Opens one of the query bar's chips. */
+async function openChip(page: Page, name: string) {
+  await page.getByTestId(`${name}-chip`).click();
+  return page.getByTestId(`${name}-panel`);
+}
+
+/** Asks for the export's size, and waits for it. */
+async function sized(page: Page) {
+  await page.getByTestId("estimate-button").click();
+  const estimate = page.getByTestId("estimate");
+  await expect(estimate).toContainText(/≈ .*(B|KB|MB|GB)/, { timeout: 30_000 });
+  return estimate;
+}
+
+/** Whether a click at the middle of {@code target} would land on it. */
+async function isOnTop(target: Locator): Promise<boolean> {
+  return target.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit !== null && element.contains(hit);
+  });
 }
 
 test.describe("LogGate", () => {
   test("alice is offered only her own namespace", async ({ page }) => {
     await signIn(page, "alice");
 
-    const list = page.locator('[data-testid="namespaces"]');
-    const namespaces = list.locator(".pill");
-    await expect(namespaces).toHaveCount(1);
-    await expect(namespaces.first()).toContainText("platform-dev");
+    // Chosen for her already, as a team usually wants its own.
+    await expect(page.getByTestId("namespaces-chip")).toContainText("platform-dev");
+    const panel = await openChip(page, "namespaces");
+    const list = panel.getByTestId("namespaces");
+    await expect(list.getByRole("checkbox")).toHaveCount(1);
+    await expect(list).toContainText("platform-dev");
     // payments-dev belongs to another team and must not appear at all.
     await expect(list).not.toContainText("payments-dev");
   });
 
-  test("a time range preset sets the range and shows its duration", async ({ page }) => {
+  test("a time range preset sets the range and says which", async ({ page }) => {
     await signIn(page, "alice");
 
-    // The range starts as the first preset, and says so.
-    await expect(page.getByRole("button", { name: "Last hour" })).toHaveAttribute("aria-pressed", "true");
+    const when = page.getByTestId("when-chip");
+    await expect(when).toContainText("Last hour");
+    const panel = await openChip(page, "when");
+    await expect(panel.getByRole("button", { name: "Last hour" })).toHaveAttribute("aria-pressed", "true");
 
-    await page.getByRole("button", { name: "Last 6 hours" }).click();
+    await panel.getByRole("button", { name: "Last 6 hours" }).click();
+    await expect(when).toContainText("Last 6 hours");
+    await expect(panel.getByRole("button", { name: "Last hour" })).toHaveAttribute("aria-pressed", "false");
 
-    await expect(page.locator("legend", { hasText: "Time range" })).toContainText("6h");
-    await expect(page.getByRole("button", { name: "Last 6 hours" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("button", { name: "Last hour" })).toHaveAttribute("aria-pressed", "false");
-
-    // A range edited by hand is no longer any preset.
-    await page.getByLabel("From", { exact: true }).fill("2026-01-01T00:00");
-    await expect(page.locator('.presets [aria-pressed="true"]')).toHaveCount(0);
+    // A range edited by hand is no longer any preset, and the chip says what it is.
+    await panel.getByLabel("From", { exact: true }).fill("2026-01-01T00:00");
+    await expect(panel.locator('.when-presets [aria-pressed="true"]')).toHaveCount(0);
+    await expect(when).toContainText("1 Jan");
   });
 
-  test("the estimate is shown before committing, with the generated query", async ({ page }) => {
+  test("the size is shown before anything runs, with the generated query", async ({ page }) => {
     await signIn(page, "alice");
 
-    await page.getByRole("button", { name: "Estimate first" }).click();
-
-    const estimate = page.locator(".estimate");
-    await expect(estimate).toBeVisible();
-    await expect(estimate.locator(".estimate-headline")).toContainText(/B|KB|MB|GB/);
-
-    // The selector is generated, never typed, so it is worth showing.
-    await page.getByText("What will be queried").click();
-    await expect(estimate.locator("code")).toContainText('namespace="platform-dev"');
+    // Asked for as soon as the choice is complete, without a button.
+    await sized(page);
+    await page.getByText("Details").click();
+    await expect(page.locator(".estimate-details code")).toContainText('namespace="platform-dev"');
   });
 
   test("an export runs to completion and offers its files", async ({ page }) => {
@@ -62,19 +83,57 @@ test.describe("LogGate", () => {
     // Narrowed to the small steady workload. Without this the range can cover
     // whatever bulk data happens to be in the cluster, and the test measures
     // the machine rather than the behaviour.
-    await page.getByRole("button", { name: "Match a pattern" }).click();
-    await page.getByLabel("Pod pattern").fill("platform-api-*");
+    const pods = await openChip(page, "pods");
+    await pods.getByRole("button", { name: "Match a pattern" }).click();
+    await pods.getByLabel("Pod pattern").fill("platform-api-*");
+    await page.keyboard.press("Escape");
+    await sized(page);
 
     await page.getByRole("button", { name: "Start export" }).click();
 
-    const job = page.locator('[data-testid="job"]').first();
+    const exports = page.getByTestId("exports");
+    await exports.getByRole("button", { name: /All/ }).click();
+    const job = exports.locator('[data-testid="job"]').first();
     await expect(job).toBeVisible();
 
     // The workers have to actually extract from Loki and write to storage.
-    await expect(job.locator(".state")).toHaveText("READY", { timeout: 150_000 });
+    await expect(job.locator(".state")).toHaveText("Ready", { timeout: 150_000 });
     await expect(job).toContainText("entries");
-    await expect(job.getByRole("link", { name: "Download script" })).toBeVisible();
-    await expect(job.getByRole("link", { name: "Download .zip" })).toBeVisible();
+    await job.getByRole("button", { name: /Download/ }).click();
+    const script = page.getByRole("link", { name: "Download script" });
+    await expect(script).toBeVisible();
+    await expect(page.getByRole("link", { name: "Download .zip" })).toBeVisible();
+    // On top where it is drawn, not merely present: toBeVisible passes for a
+    // menu clipped inside the table, which is how this once shipped unusable.
+    expect(await isOnTop(script)).toBe(true);
+
+    const download = page.waitForEvent("download");
+    await script.click();
+    expect((await download).suggestedFilename()).toMatch(/\.sh$/);
+    await expect(script).toHaveCount(0);
+  });
+
+  test("finished exports are found by tab and by search, and can be run again", async ({ page }) => {
+    await signIn(page, "alice");
+
+    const exports = page.getByTestId("exports");
+    await exports.getByRole("button", { name: /Finished/ }).click();
+    const rows = exports.locator('[data-testid="job"]');
+    await expect(rows.first()).toBeVisible();
+    // Nothing still moving is on this tab.
+    await expect(rows.filter({ has: page.locator(".st-run") })).toHaveCount(0);
+
+    await exports.getByLabel("Search exports").fill("no-such-namespace");
+    await expect(rows).toHaveCount(0);
+    await exports.getByLabel("Search exports").fill("platform-dev");
+    await expect(rows.first()).toBeVisible();
+
+    // Run again refills the query with that export's scope.
+    const again = exports.getByRole("button", { name: "Run again" }).first();
+    if (await again.count()) {
+      await again.click();
+      await expect(page.getByTestId("namespaces-chip")).toContainText("platform-dev");
+    }
   });
 
   test("pods are listed from metrics, and a picked pod narrows the query", async ({ page }) => {
@@ -82,26 +141,28 @@ test.describe("LogGate", () => {
 
     // Listed from kube-state-metrics for the chosen namespace and range: the
     // seeded API pods ran in platform-dev during the last hour.
-    const pods = page.locator('[data-testid="pods"]');
-    const api = pods.getByRole("checkbox", { name: /^platform-api-/ }).first();
+    const panel = await openChip(page, "pods");
+    const list = panel.getByTestId("pods");
+    const api = list.getByRole("checkbox", { name: /^platform-api-/ }).first();
     await expect(api).toBeVisible({ timeout: 30_000 });
-    await expect(pods).not.toContainText("payments-");
+    await expect(list).not.toContainText("payments-");
     const name = await api.getAttribute("value");
     await api.check();
-    await expect(page.locator('[data-testid="scope-summary"]')).toContainText("1 pod");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pods-chip")).toContainText("1 chosen");
 
-    await page.getByRole("button", { name: "Estimate first" }).click();
-    await page.getByText("What will be queried").click();
-    await expect(page.locator(".estimate code")).toContainText(`pod="${name}"`);
+    await sized(page);
+    await page.getByText("Details").click();
+    await expect(page.locator(".estimate-details code")).toContainText(`pod="${name}"`);
   });
 
   test("the activity and audit pages are for administrators", async ({ page }) => {
     // alice can export, but is not an administrator: no other views, and a
-    // link to one lands on the export form.
+    // link to one lands on the export view.
     await signIn(page, "alice");
     await expect(page.getByRole("button", { name: "Activity" })).toHaveCount(0);
     await page.goto("/#audit");
-    await expect(page.getByRole("heading", { name: "New export" })).toBeVisible();
+    await expect(page.getByTestId("query")).toBeVisible();
     await expect(page.locator('[data-testid="audit"]')).toHaveCount(0);
   });
 
@@ -172,10 +233,11 @@ test.describe("LogGate", () => {
   test("the output format is chosen per export", async ({ page }) => {
     await signIn(page, "alice");
 
-    const output = page.getByRole("group", { name: "Output format" });
-    await expect(output.getByRole("button", { name: "JSON lines" })).toHaveAttribute("aria-pressed", "true");
-    await output.getByRole("button", { name: "Raw log lines" }).click();
-    await expect(page.locator('[data-testid="scope-summary"]')).toContainText("raw lines");
+    const output = page.getByTestId("output-chip");
+    await expect(output).toContainText("JSON");
+    const panel = await openChip(page, "output");
+    await panel.getByRole("button", { name: /Raw log lines/ }).click();
+    await expect(output).toContainText("Raw lines");
   });
 
   test("the theme can be chosen rather than only inherited", async ({ page }) => {
@@ -196,25 +258,51 @@ test.describe("LogGate", () => {
     await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
   });
 
-  test("the allowance is visible before an export is started", async ({ page }) => {
+  test("the allowance is one click from the start button", async ({ page }) => {
     await signIn(page, "alice");
 
-    const allowance = page.locator('[data-testid="allowance"]');
-    await allowance.getByText("Your allowance").click();
-    await expect(allowance).toContainText("platform");
-    await expect(allowance).toContainText("exports running");
-    await expect(allowance).toContainText("Finished exports are kept for");
+    await expect(page.getByTestId("allowance-chip")).toContainText("running");
+    const panel = await openChip(page, "allowance");
+    await expect(panel).toContainText("Your allowance");
+    await expect(panel).toContainText("platform");
+    await expect(panel).toContainText("Finished exports are kept for");
+  });
+
+  test("the size is asked for, not fetched as the choices change", async ({ page }) => {
+    // Each estimate asks Loki for a volume and may sample the range, so none
+    // is made until someone asks for it.
+    let estimates = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/exports/estimate")) estimates++;
+    });
+    await signIn(page, "alice");
+
+    const when = await openChip(page, "when");
+    await when.getByRole("button", { name: "Last 6 hours" }).click();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1500);
+    expect(estimates).toBe(0);
+    await expect(page.getByRole("button", { name: "Start export" })).toBeEnabled();
+
+    await sized(page);
+    expect(estimates).toBe(1);
+
+    // A change clears a size that no longer describes the query, and asks nothing.
+    const again = await openChip(page, "when");
+    await again.getByRole("button", { name: "Last hour" }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("estimate-button")).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(estimates).toBe(1);
   });
 
   test("an estimate carries the quota verdict with it", async ({ page }) => {
     await signIn(page, "alice");
 
-    await page.getByRole("button", { name: "Estimate first" }).click();
-
-    // Admitted, so the start button names what it is about to start rather
-    // than warning about it.
+    await sized(page);
+    // Admitted, so Start is offered rather than a refusal.
     await expect(page.locator('[data-testid="refusal"]')).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Start export \(/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start export" })).toBeEnabled();
   });
 
   test("team-label mode shows the one cluster exports come from", async ({ page }) => {
@@ -222,13 +310,12 @@ test.describe("LogGate", () => {
 
     // Fixed rather than offered: Kubernetes here can only vouch for its own
     // cluster's namespaces, so there is nothing to choose.
-    const pinned = page.locator('[data-testid="pinned-cluster"]');
-    await expect(pinned).toContainText("k3d-loggate");
-    await expect(page.locator('[data-testid="clusters"]')).toHaveCount(0);
+    await expect(page.getByTestId("pinned-cluster")).toContainText("k3d-loggate");
+    await expect(page.getByTestId("clusters-chip")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Estimate first" }).click();
-    await page.getByText("What will be queried").click();
-    await expect(page.locator(".estimate code")).toContainText('cluster="k3d-loggate"');
+    await sized(page);
+    await page.getByText("Details").click();
+    await expect(page.locator(".estimate-details code")).toContainText('cluster="k3d-loggate"');
   });
 
   test("dave has no namespaces and is told what to do about it", async ({ page }) => {

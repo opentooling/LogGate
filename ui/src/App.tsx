@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type ExportJob, type Me, type Quota } from "./api";
-import { NewExport } from "./NewExport";
-import { Exports } from "./Exports";
+import { QueryBar } from "./QueryBar";
+import { ExportsTable } from "./ExportsTable";
 import { Activity } from "./Activity";
 import { Audit } from "./Audit";
+import { ACTIVE, draftFrom, type Draft } from "./jobs";
 import { applyTheme, nextTheme, rememberTheme, storedTheme, themeLabel, type Theme } from "./theme";
 
 type View = "export" | "activity" | "audit";
@@ -15,7 +16,7 @@ function viewFromHash(): View {
 }
 
 /** States that are still moving, and therefore worth polling. */
-export const ACTIVE_STATES = new Set(["QUEUED", "PLANNED", "RUNNING", "FINALIZING"]);
+export const ACTIVE_STATES = ACTIVE;
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -25,6 +26,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const [view, setView] = useState<View>(viewFromHash);
+  const [draft, setDraft] = useState<(Draft & { nonce: number }) | null>(null);
 
   useEffect(() => {
     const follow = () => setView(viewFromHash());
@@ -49,14 +51,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    Promise.all([api.me().then(setMe).catch(() => {}), refresh()]).finally(() =>
-      setLoading(false),
-    );
+    Promise.all([api.me().then(setMe).catch(() => {}), refresh()]).finally(() => setLoading(false));
   }, [refresh]);
 
   // Poll only while something is running, so an idle page stays quiet.
   useEffect(() => {
-    if (!jobs.some((job) => ACTIVE_STATES.has(job.state))) return;
+    if (!jobs.some((job) => ACTIVE.has(job.state))) return;
     const timer = setInterval(refresh, 2000);
     return () => clearInterval(timer);
   }, [jobs, refresh]);
@@ -78,80 +78,96 @@ export function App() {
     rememberTheme(chosen);
   }
 
+  const onError = useCallback((message: string) => setError(message || null), []);
+
   return (
-    <div className="page">
-      <header className="masthead">
-        <div>
-          <h1>LogGate</h1>
-          <p className="tagline">
-            Bulk log export, for when a dashboard is the wrong tool.
-          </p>
-        </div>
-        {/* The other views are for administrators; everyone else has only
-            the one, so there is nothing to switch between. */}
-        {me?.admin && (
-          <nav className="tabs" aria-label="Views">
-            <button type="button" aria-pressed={view === "export"} onClick={() => show("export")}>
-              Export
-            </button>
-            <button type="button" aria-pressed={view === "activity"} onClick={() => show("activity")}>
-              Activity
-            </button>
-            <button type="button" aria-pressed={view === "audit"} onClick={() => show("audit")}>
-              Audit
-            </button>
-          </nav>
-        )}
-        <div className="who">
-          <a className="link" href="/guide" target="_blank" rel="noopener">
-            Guide
-          </a>
-          <button type="button" className="theme" onClick={cycleTheme} aria-live="polite">
-            {themeLabel(theme)}
+    <div className="shell">
+      <aside className="rail">
+        <a className="brand" href="/" aria-label="LogGate">
+          <span className="mark" aria-hidden="true">
+            L
+          </span>
+          <span>LogGate</span>
+        </a>
+        <nav className="rail-nav" aria-label="Views">
+          <button type="button" aria-pressed={view === "export"} onClick={() => show("export")}>
+            Export
           </button>
-          {me && (
+          {/* Across everyone's exports, so for administrators only. */}
+          {me?.admin && (
             <>
-              <span className="name">{me.name}</span>
-              <button type="button" className="link sign-out" onClick={signOut}>
-                Sign out
+              <button type="button" aria-pressed={view === "activity"} onClick={() => show("activity")}>
+                Activity
+              </button>
+              <button type="button" aria-pressed={view === "audit"} onClick={() => show("audit")}>
+                Audit
               </button>
             </>
           )}
-        </div>
-      </header>
-
-      {error && (
-        <div className="banner banner-error" role="alert">
-          <span>{error}</span>
-          <button type="button" className="ghost" onClick={() => setError(null)}>
-            Dismiss
+          <a href="/guide" target="_blank" rel="noopener">
+            Guide
+          </a>
+        </nav>
+        <div className="rail-account">
+          {me && (
+            <span className="who" title={me.subject}>
+              <span className="avatar" aria-hidden="true">
+                {me.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="name">{me.name}</span>
+            </span>
+          )}
+          <button type="button" className="text-button" onClick={cycleTheme} aria-live="polite">
+            {themeLabel(theme)}
           </button>
+          {me && (
+            <button type="button" className="text-button" onClick={signOut}>
+              Sign out
+            </button>
+          )}
         </div>
-      )}
+      </aside>
 
-      {loading ? (
-        <p className="quiet">Loading…</p>
-      ) : view === "activity" && me?.admin ? (
-        <Activity onError={setError} />
-      ) : view === "audit" && me?.admin ? (
-        <Audit onError={setError} />
-      ) : (
-        <div className="columns">
-          <div>
+      <main className="main">
+        {error && (
+          <div className="banner banner-error" role="alert">
+            <span>{error}</span>
+            <button type="button" className="text-button" onClick={() => setError(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {loading ? (
+          <p className="quiet">Loading…</p>
+        ) : view === "activity" && me?.admin ? (
+          <Activity onError={onError} />
+        ) : view === "audit" && me?.admin ? (
+          <Audit onError={onError} />
+        ) : (
+          <>
             {me && me.barrier ? (
-              <section className="card empty" data-testid="barrier">
+              <section className="panel empty" data-testid="barrier">
                 <h2>{me.mode === "OPEN" ? "No access" : "No namespaces"}</h2>
                 <p>{me.barrier}</p>
               </section>
             ) : (
               me && (
-                <NewExport me={me} quota={quota} onSubmitted={refresh} onError={setError} />
+                <QueryBar me={me} quota={quota} draft={draft} onSubmitted={refresh} onError={onError} />
               )
             )}
-          </div>
-          <Exports jobs={jobs} onChanged={refresh} onError={setError} />
-        </div>
-      )}
+            <ExportsTable
+              jobs={jobs}
+              onChanged={refresh}
+              onRunAgain={(job) => {
+                setDraft({ ...draftFrom(job), nonce: Date.now() });
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onError={onError}
+            />
+          </>
+        )}
+      </main>
     </div>
   );
 }

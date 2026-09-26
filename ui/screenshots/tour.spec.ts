@@ -46,7 +46,7 @@ async function signIn(page: Page, username: string) {
   await page.fill("#username", username);
   await page.fill("#password", PASSWORD);
   await page.click("#kc-form-login button[type=submit], #kc-login");
-  await expect(page.getByRole("heading", { name: "LogGate" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Views" })).toBeVisible();
 }
 
 /** A value for a datetime-local input, in the browser's own time zone. */
@@ -58,38 +58,45 @@ function localInput(date: Date): string {
   );
 }
 
+/** Opens one of the query bar's chips, and returns its panel. */
+async function openChip(page: Page, name: string) {
+  await page.getByTestId(`${name}-chip`).click();
+  return page.getByTestId(`${name}-panel`);
+}
+
 async function choose(page: Page, namespaces: string[]) {
+  const panel = await openChip(page, "namespaces");
   for (const name of ["platform-dev", "payments-dev"]) {
-    // Scoped: the pod list's group toggles are named after namespaces too.
-    const box = page.locator('[data-testid="namespaces"]').getByRole("checkbox", { name: new RegExp(name) });
+    const box = panel.getByTestId("namespaces").getByRole("checkbox", { name: new RegExp(name) });
     if (namespaces.includes(name)) await box.check();
     else await box.uncheck();
   }
+  await page.keyboard.press("Escape");
 }
 
 async function rangeFromNow(page: Page, minutesAgo: number) {
   const now = new Date();
-  await page.getByLabel("From", { exact: true }).fill(localInput(new Date(now.getTime() - minutesAgo * 60_000)));
-  await page.getByLabel("To", { exact: true }).fill(localInput(now));
-}
-
-/**
- * Pins the action bar where it sits in the form. It sticks to the bottom of the
- * viewport, which is right on screen but, in a shot of one part of a card
- * taller than the viewport, lands on top of whatever that part is.
- */
-async function unstick(page: Page) {
-  await page.addStyleTag({ content: ".actions-sticky { position: static; }" });
+  const panel = await openChip(page, "when");
+  await panel.getByLabel("From", { exact: true }).fill(localInput(new Date(now.getTime() - minutesAgo * 60_000)));
+  await panel.getByLabel("To", { exact: true }).fill(localInput(now));
+  return panel;
 }
 
 /** Narrows by pod pattern rather than by picking from the list. */
 async function podPattern(page: Page, pattern: string) {
-  await page.getByRole("button", { name: "Match a pattern" }).click();
-  await page.getByLabel("Pod pattern").fill(pattern);
+  const panel = await openChip(page, "pods");
+  await panel.getByRole("button", { name: "Match a pattern" }).click();
+  await panel.getByLabel("Pod pattern").fill(pattern);
+  await page.keyboard.press("Escape");
 }
 
-const newExport = (page: Page) => page.locator("section.card").nth(0);
-const exportsCard = (page: Page) => page.locator("section.card").nth(1);
+async function sized(page: Page) {
+  await page.getByTestId("estimate-button").click();
+  await expect(page.getByTestId("estimate")).toContainText(/≈/, { timeout: 30_000 });
+}
+
+const query = (page: Page) => page.getByTestId("query");
+const exportsPanel = (page: Page) => page.getByTestId("exports");
 
 test("signing in", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
@@ -107,38 +114,47 @@ test("the tour, as someone in two teams", async ({ page }) => {
   // of one team's API pods finishes in about a minute.
   await choose(page, ["platform-dev"]);
   await rangeFromNow(page, 30);
+  await page.keyboard.press("Escape");
   await podPattern(page, "platform-api-*");
-  await page.getByRole("button", { name: /^Start export/ }).click();
+  await sized(page);
+  await page.getByRole("button", { name: "Start export" }).click();
 
-  const ready = exportsCard(page).locator('[data-testid="job"][data-state="READY"]').first();
+  await exportsPanel(page).getByRole("button", { name: /All/ }).click();
+  const ready = exportsPanel(page).locator('[data-testid="job"][data-state="READY"]').first();
   await expect(ready).toBeVisible({ timeout: 240_000 });
-  await ready.getByText(/files, individually/).click();
-  await expect(ready.locator(".files li").first()).toBeVisible();
-  await ready.screenshot({ path: `${OUT}/07-ready.png` });
+  await ready.getByRole("button", { name: /Download/ }).click();
+  await ready.getByRole("button", { name: "The files, individually" }).click();
+  await expect(exportsPanel(page).locator(".files li").first()).toBeVisible();
+  await exportsPanel(page).screenshot({ path: `${OUT}/07-ready.png` });
 
-  // The estimate, across both teams, with the generated query open.
-  await page.getByLabel("Pod pattern").fill("");
-  await page.getByRole("button", { name: "Pick from list" }).click();
+  // Back to every pod, across both teams, over a day.
+  const pods = await openChip(page, "pods");
+  await pods.getByLabel("Pod pattern").fill("");
+  await pods.getByRole("button", { name: "Pick from list" }).click();
+  await page.keyboard.press("Escape");
   await choose(page, ["platform-dev", "payments-dev"]);
   // The pods that ran in both namespaces, grouped by namespace.
-  const pods = newExport(page).locator('[data-testid="pods-picker"]');
-  await expect(pods.getByRole("group", { name: /-dev$/ })).toHaveCount(2, { timeout: 30_000 });
-  await unstick(page);
-  await pods.screenshot({ path: `${OUT}/12-pods.png` });
-  await page.getByRole("button", { name: "Last 24 hours" }).click();
-  await page.getByRole("button", { name: "Estimate first" }).click();
-  const estimate = page.locator(".estimate");
-  await expect(estimate).toBeVisible();
-  await expect(estimate.locator(".breakdown li")).toHaveCount(2);
-  await estimate.getByText("What will be queried").click();
-  await newExport(page).screenshot({ path: `${OUT}/03-estimate.png` });
+  const podList = await openChip(page, "pods");
+  await expect(podList.getByRole("group", { name: /-dev$/ })).toHaveCount(2, { timeout: 30_000 });
+  await podList.screenshot({ path: `${OUT}/12-pods.png` });
+  await page.keyboard.press("Escape");
+  const when = await openChip(page, "when");
+  await when.getByRole("button", { name: "Last 24 hours" }).click();
+  await page.keyboard.press("Escape");
+
+  // The size, and what will be queried.
+  await sized(page);
+  await query(page).getByText("Details").click();
+  await expect(query(page).locator(".breakdown li")).toHaveCount(2);
+  await query(page).screenshot({ path: `${OUT}/03-estimate.png` });
 
   // Start it, and wait until there is enough progress for an estimate of the
   // time left, which is what makes a running export worth looking at.
-  await page.getByRole("button", { name: /^Start export \(/ }).click();
-  const running = exportsCard(page).locator('[data-testid="job"]').first();
+  await page.getByRole("button", { name: "Start export" }).click();
+  await exportsPanel(page).getByRole("button", { name: /Active/ }).click();
+  const running = exportsPanel(page).locator('[data-testid="job"]').first();
   await expect(running.locator(".progress-detail")).toContainText("left", { timeout: 300_000 });
-  await running.screenshot({ path: `${OUT}/06-running.png` });
+  await exportsPanel(page).screenshot({ path: `${OUT}/06-running.png` });
 
   // The whole page mid-export, in both themes: this is the one the README
   // shows, matched to the reader's own GitHub theme.
@@ -150,13 +166,16 @@ test("the tour, as someone in two teams", async ({ page }) => {
 
   // Put it away again; the tour only needed it running.
   await running.getByRole("button", { name: "Cancel" }).click();
-  await expect(running.locator(".state")).toHaveText("CANCELLED", { timeout: 180_000 });
+  await exportsPanel(page).getByRole("button", { name: /All/ }).click();
+  await expect(exportsPanel(page).locator('[data-testid="job"][data-state="CANCELLED"]').first()).toBeVisible({
+    timeout: 180_000,
+  });
 
   // The allowance, open.
-  const allowance = page.locator('[data-testid="allowance"]');
-  await allowance.getByText("Your allowance").click();
+  const allowance = await openChip(page, "allowance");
   await expect(allowance).toContainText("exports running");
   await allowance.screenshot({ path: `${OUT}/04-allowance.png` });
+  await page.keyboard.press("Escape");
 
   // The activity page, with the exports this tour just made on it.
   await page.getByRole("button", { name: "Activity" }).click();
@@ -173,14 +192,11 @@ test("the tour, as someone in two teams", async ({ page }) => {
   await page.screenshot({ path: `${OUT}/14-audit.png`, fullPage: true });
   await page.getByRole("button", { name: "Export" }).click();
 
-  // A range longer than one export may cover is stopped in the form.
-  await rangeFromNow(page, 3 * 24 * 60);
+  // A range longer than one export may cover is stopped as it is chosen.
+  const range = await rangeFromNow(page, 3 * 24 * 60);
   // Typing leaves a focus ring and a selected field, which is not what anyone
   // sees when they read the message.
-  await page.getByLabel("To", { exact: true }).blur();
-  const range = newExport(page).locator("fieldset", {
-    has: page.locator("legend", { hasText: "Time range" }),
-  });
+  await range.getByLabel("To", { exact: true }).blur();
   await expect(range.locator(".field-error")).toContainText("at most");
   await range.screenshot({ path: `${OUT}/05-range-limit.png` });
 });
@@ -216,10 +232,7 @@ test("on a phone", async ({ browser }) => {
   });
   const page = await context.newPage();
   await signIn(page, "carol");
-  await page.getByRole("button", { name: "Estimate first" }).click();
-  await expect(page.locator(".estimate")).toBeVisible();
-  // The estimate scrolls the page; the shot is of the page as it opens.
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await sized(page);
   await page.screenshot({ path: `${OUT}/09-phone.png` });
   await context.close();
 });
@@ -239,15 +252,15 @@ test.describe("open access", () => {
 
     // Choosing a cluster narrows the namespaces to that cluster's own, which
     // here is one LogGate has no Kubernetes access to at all.
-    await page.getByRole("checkbox", { name: "edge-eu" }).check();
-    const namespaces = page.locator('[data-testid="namespaces"]');
+    const clusters = await openChip(page, "clusters");
+    await clusters.getByRole("checkbox", { name: "edge-eu" }).check();
+    await page.keyboard.press("Escape");
+    const namespaces = await openChip(page, "namespaces");
     await expect(namespaces).toContainText("checkout-prod");
     await expect(namespaces).not.toContainText("observability");
-
-    await page.getByRole("button", { name: "Estimate first" }).click();
-    await expect(page.locator(".estimate .breakdown li")).toHaveCount(2);
-    await unstick(page);
-    await newExport(page).screenshot({ path: `${OUT}/10-open-access.png` });
+    await page.waitForTimeout(1500);
+    // The query bar with the namespaces of the unreachable cluster open over it.
+    await page.screenshot({ path: `${OUT}/10-open-access.png`, clip: { x: 0, y: 0, width: 1280, height: 480 } });
   });
 
   test("and nothing to anyone without it", async ({ page }) => {
