@@ -13,7 +13,7 @@ class GroupNameRendererTest {
     return new GroupNameRenderer(
         TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", template, environment, ""),
-            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30), ""),
+            new LogGateProperties.Loki("http://loki.test", "", 5000, java.time.Duration.ofSeconds(30), "", ""),
             new LogGateProperties.Windows(268435456L, java.time.Duration.ofMinutes(1), java.time.Duration.ofHours(1), 5000)));
   }
 

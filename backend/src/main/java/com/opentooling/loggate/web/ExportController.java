@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import com.opentooling.loggate.web.ApiErrors.ApiError;
 import com.opentooling.loggate.audit.AuditAction;
 import com.opentooling.loggate.audit.AuditService;
 import com.opentooling.loggate.authz.AccessDecision;
@@ -68,22 +69,22 @@ public class ExportController {
    * What is wrong with the shape of {@code request}, before anyone is asked
    * whether it is allowed, or null when nothing is.
    */
-  private String invalid(ExportRequest request) {
+  private void requireValid(ExportRequest request) {
     if (!request.hasValidRange()) {
-      return "the export range must end after it starts";
+      throw new IllegalArgumentException("the export range must end after it starts");
     }
     if (access.requiresNamespaces() && request.namespaces().isEmpty()) {
-      return "choose at least one namespace";
+      throw new IllegalArgumentException("choose at least one namespace");
     }
     if (request.hasPodsAndPattern()) {
-      return "pick pods or give a pod pattern, not both";
+      throw new IllegalArgumentException("pick pods or give a pod pattern, not both");
     }
     // Enforced here, not only by hiding the field: the setting would mean
     // nothing if a request could simply carry a pattern anyway.
     if (!podPatternAllowed && request.podPattern() != null && !request.podPattern().isBlank()) {
-      return "pod patterns are switched off here: pick pods from the list";
+      throw new IllegalArgumentException(
+          "pod patterns are switched off here: pick pods from the list");
     }
-    return null;
   }
 
   /**
@@ -101,11 +102,7 @@ public class ExportController {
       @AuthenticationPrincipal OidcUser principal,
       @Valid @RequestBody ExportRequest request,
       HttpServletRequest httpRequest) {
-    String problem = invalid(request);
-    if (problem != null) {
-      return ResponseEntity.badRequest().body(new ApiError(problem));
-    }
-
+    requireValid(request);
     AuthenticatedUser user = AuthenticatedUser.from(principal);
     AccessDecision decision =
         authorization.check(
@@ -114,14 +111,9 @@ public class ExportController {
       return ResponseEntity.status(403).body(decision);
     }
 
-    try {
-      ExportService.Preflight preflight = exports.preflight(user, request);
-      return ResponseEntity.ok(EstimateResponse.of(preflight));
-    } catch (IllegalArgumentException e) {
-      // A request that cannot be planned, e.g. a range needing more windows
-      // than the limit allows. That is the caller's to fix, not a server fault.
-      return ResponseEntity.badRequest().body(new ApiError(e.getMessage()));
-    }
+    // A request that cannot be planned, e.g. a range needing more windows than
+    // the limit allows, is refused as the caller's to fix, by ApiErrors.
+    return ResponseEntity.ok(EstimateResponse.of(exports.preflight(user, request)));
   }
 
   /**
@@ -135,10 +127,7 @@ public class ExportController {
       @AuthenticationPrincipal OidcUser principal,
       @Valid @RequestBody ExportRequest request,
       HttpServletRequest httpRequest) {
-    String problem = invalid(request);
-    if (problem != null) {
-      return ResponseEntity.badRequest().body(new ApiError(problem));
-    }
+    requireValid(request);
     AuthenticatedUser user = AuthenticatedUser.from(principal);
     String sourceIp = ClientAddress.of(httpRequest);
 
@@ -148,17 +137,13 @@ public class ExportController {
       return ResponseEntity.status(403).body(decision);
     }
 
-    try {
-      ExportService.Submission submission = exports.submit(user, request, sourceIp);
-      if (!submission.accepted()) {
-        // 429 rather than 403: the request is legitimate, there is just no room
-        // for it right now, and the caller should retry rather than change it.
-        return ResponseEntity.status(429).body(new ApiError(submission.refusal()));
-      }
-      return ResponseEntity.status(201).body(submission.job());
-    } catch (IllegalArgumentException e) {
-      return ResponseEntity.badRequest().body(new ApiError(e.getMessage()));
+    ExportService.Submission submission = exports.submit(user, request, sourceIp);
+    if (!submission.accepted()) {
+      // 429 rather than 403: the request is legitimate, there is just no room
+      // for it right now, and the caller should retry rather than change it.
+      return ResponseEntity.status(429).body(new ApiError(submission.refusal()));
     }
+    return ResponseEntity.status(201).body(submission.job());
   }
 
   /**
@@ -351,7 +336,4 @@ public class ExportController {
      */
     public record Admission(boolean allowed, String reason, long byteLimit) {}
   }
-
-  /** @param message what went wrong */
-  public record ApiError(String message) {}
 }

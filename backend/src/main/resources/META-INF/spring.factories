@@ -1,0 +1,2 @@
+# Runs before the application context exists; see OidcTrust for why it must.
+org.springframework.context.ApplicationListener=com.opentooling.loggate.security.OidcTrust

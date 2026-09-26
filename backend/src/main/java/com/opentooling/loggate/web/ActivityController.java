@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.opentooling.loggate.activity.ActivityRepository;
 import com.opentooling.loggate.security.AdminPolicy;
 import com.opentooling.loggate.security.AuthenticatedUser;
-import com.opentooling.loggate.web.ExportController.ApiError;
+import com.opentooling.loggate.web.ApiErrors.ApiError;
 
 /**
  * The page's dashboard: how exporting has gone, installation-wide.
@@ -50,7 +50,7 @@ public class ActivityController {
     }
     Duration[] chosen = PERIODS.get(period);
     if (chosen == null) {
-      return ResponseEntity.badRequest().body(new ApiError("period must be 24h, 7d or 30d"));
+      throw new IllegalArgumentException("period must be 24h, 7d or 30d");
     }
     return ResponseEntity.ok(activity.report(chosen[0], chosen[1]));
   }

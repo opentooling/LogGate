@@ -93,7 +93,7 @@ public final class TestProperties {
   }
 
   public static LogGateProperties.Loki loki() {
-    return new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), "");
+    return new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), "", "");
   }
 
   public static LogGateProperties.Windows windows() {

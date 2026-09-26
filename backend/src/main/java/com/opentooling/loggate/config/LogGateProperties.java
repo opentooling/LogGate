@@ -122,9 +122,9 @@ public record LogGateProperties(
    *     accepts them always; many S3-compatible stores, ONTAP S3 among them,
    *     do not document the trailing-checksum encoding the SDK uses by default,
    *     so the default is to send one only when the operation requires it
-   * @param caCertificate path to a PEM file of certificates to trust for the
-   *     storage endpoint, for stores behind an internal certificate authority;
-   *     empty uses the JVM's default trust
+   * @param sslBundle the SSL bundle ({@code spring.ssl.bundle.*}) whose trust
+   *     store is trusted for the storage endpoint, in place of the JVM's, for
+   *     stores behind an internal certificate authority; empty uses the JVM's
    */
   public record Storage(
       @DefaultValue("http://s3.observability.svc.cluster.local:9000") String endpoint,
@@ -136,7 +136,7 @@ public record LogGateProperties(
       @DefaultValue("") String publicEndpoint,
       @DefaultValue("30m") Duration presignedUrlLifetime,
       @DefaultValue("WHEN_REQUIRED") Checksums checksums,
-      @DefaultValue("") String caCertificate) {
+      @DefaultValue("") String sslBundle) {
 
     /** When integrity checksums are added to storage requests. */
     public enum Checksums {
@@ -174,13 +174,16 @@ public record LogGateProperties(
    * @param timeout per-request timeout
    * @param clusterLabel the stream label naming the cluster a log came from,
    *     when Loki holds more than one cluster's logs; empty when it does not
+   * @param sslBundle the SSL bundle ({@code spring.ssl.bundle.*}) whose trust
+   *     store is trusted for Loki, in place of the JVM's; empty uses the JVM's
    */
   public record Loki(
       @DefaultValue("http://loki-gateway.observability.svc.cluster.local") String url,
       @DefaultValue("") String tenantId,
       @DefaultValue("5000") int queryLimit,
       @DefaultValue("60s") Duration timeout,
-      @DefaultValue("") String clusterLabel) {
+      @DefaultValue("") String clusterLabel,
+      @DefaultValue("") String sslBundle) {
 
     /** Whether logs are told apart by cluster. */
     public boolean hasClusters() {
@@ -205,7 +208,10 @@ public record LogGateProperties(
   /**
    * @param caCertificate path to a PEM file of certificates to trust for the
    *     OIDC issuer endpoint, for identity providers behind an internal
-   *     certificate authority; empty uses the JVM's default trust
+   *     certificate authority; empty uses the JVM's default trust. Read by
+   *     {@link com.opentooling.loggate.security.OidcTrust} before the context
+   *     exists, so it is a file rather than an SSL bundle, and it is added to
+   *     the platform's roots for the whole JVM
    */
   public record Oidc(
       @DefaultValue("") String caCertificate) {}
@@ -232,7 +238,9 @@ public record LogGateProperties(
    * @param tenantId sent as {@code X-Scope-OrgID}, for Mimir and Cortex
    * @param bearerTokenFile a file holding a bearer token, re-read on every
    *     request so a rotated service-account token is picked up
-   * @param caCertificate a PEM file of certificates to trust for the endpoint
+   * @param sslBundle the SSL bundle ({@code spring.ssl.bundle.*}) whose trust
+   *     store is trusted for the endpoint, in place of the JVM's; empty uses the
+   *     JVM's
    * @param timeout per-request timeout
    * @param maxPods most pods returned for one listing
    * @param cacheTtl how long one listing is reused
@@ -248,7 +256,7 @@ public record LogGateProperties(
       @DefaultValue("") String clusterLabel,
       @DefaultValue("") String tenantId,
       @DefaultValue("") String bearerTokenFile,
-      @DefaultValue("") String caCertificate,
+      @DefaultValue("") String sslBundle,
       @DefaultValue("10s") Duration timeout,
       @DefaultValue("1000") int maxPods,
       @DefaultValue("60s") Duration cacheTtl,

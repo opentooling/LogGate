@@ -38,7 +38,7 @@ class HttpLokiClientTest {
         JsonMapper.builder().build(),
         TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
-            new LogGateProperties.Loki("http://loki.test", tenantId, 5000, Duration.ofSeconds(30), ""),
+            new LogGateProperties.Loki("http://loki.test", tenantId, 5000, Duration.ofSeconds(30), "", ""),
             new LogGateProperties.Windows(1024, Duration.ofMinutes(1), Duration.ofHours(1), 5000)),
         slept::add);
   }
@@ -291,7 +291,7 @@ class HttpLokiClientTest {
             JsonMapper.builder().build(),
             TestProperties.of(
                 new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
-                new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), ""),
+                new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), "", ""),
                 new LogGateProperties.Windows(1024, Duration.ofMinutes(1), Duration.ofHours(1), 5000)),
             duration -> {
               throw new InterruptedException("shutting down");

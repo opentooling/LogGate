@@ -4,10 +4,12 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Signs out of the identity provider as well as LogGate.
@@ -24,13 +26,17 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
  */
 public final class SpaLogoutSuccessHandler extends OidcClientInitiatedLogoutSuccessHandler {
 
+  private final ObjectMapper json;
+
   /**
    * @param landingPage where the provider returns to once it has signed the
    *     user out: a page served without a session, so it does not sign them in
    *     again
    */
-  public SpaLogoutSuccessHandler(ClientRegistrationRepository registrations, String landingPage) {
+  public SpaLogoutSuccessHandler(
+      ClientRegistrationRepository registrations, String landingPage, ObjectMapper json) {
     super(registrations);
+    this.json = json;
     setPostLogoutRedirectUri("{baseUrl}" + landingPage);
     // Without an OIDC session to end, for instance after it expired, land on
     // the same page rather than on the application, which would sign in again.
@@ -49,25 +55,6 @@ public final class SpaLogoutSuccessHandler extends OidcClientInitiatedLogoutSucc
     String target = determineTargetUrl(request, response, authentication);
     response.setStatus(HttpServletResponse.SC_OK);
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-    response.getWriter().write("{\"redirect\":" + jsonString(target) + "}");
-  }
-
-  /** The URL as a JSON string. It is built by the handler, but escaped all the same. */
-  static String jsonString(String value) {
-    StringBuilder out = new StringBuilder("\"");
-    for (char c : value.toCharArray()) {
-      switch (c) {
-        case '"' -> out.append("\\\"");
-        case '\\' -> out.append("\\\\");
-        default -> {
-          if (c < 0x20) {
-            out.append(String.format("\\u%04x", (int) c));
-          } else {
-            out.append(c);
-          }
-        }
-      }
-    }
-    return out.append('"').toString();
+    json.writeValue(response.getWriter(), Map.of("redirect", target));
   }
 }

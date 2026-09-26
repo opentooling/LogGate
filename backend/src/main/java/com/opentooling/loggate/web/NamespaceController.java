@@ -93,8 +93,7 @@ public class NamespaceController {
     AuthenticatedUser user = AuthenticatedUser.from(principal);
     List<String> chosen = clusters == null ? List.of() : clusters;
     if (chosen.isEmpty() && choosesClusterFirst(access.clusters(user))) {
-      return ResponseEntity.badRequest()
-          .body(new ExportController.ApiError("choose at least one cluster first"));
+      throw new IllegalArgumentException("choose at least one cluster first");
     }
     return ResponseEntity.ok(access.namespaces(user, chosen));
   }

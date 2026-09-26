@@ -3,13 +3,10 @@ package com.opentooling.loggate.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 
 /**
  * Backend-for-frontend: the OIDC authorization code flow is terminated here and
@@ -31,18 +28,6 @@ public class SecurityConfig {
     "/site.css", "/theme-boot.js"
   };
 
-  public SecurityConfig() {}
-
-  @org.springframework.beans.factory.annotation.Autowired
-  public void initCustomCa(
-      org.springframework.beans.factory.ObjectProvider<LogGateProperties> propertiesProvider) {
-    LogGateProperties properties = propertiesProvider.getIfAvailable();
-    if (properties != null && !properties.oidc().caCertificate().isBlank()) {
-      com.opentooling.loggate.security.CaCertificates.configureDefaultSslContext(
-          java.nio.file.Path.of(properties.oidc().caCertificate()));
-    }
-  }
-
   /** A 401 for the API, and the welcome page for everyone else. */
   static org.springframework.security.web.AuthenticationEntryPoint entryPoint() {
     var api = new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED);
@@ -59,9 +44,8 @@ public class SecurityConfig {
    * token, which is the only place Keycloak puts them by default.
    */
   @Bean
-  com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService(
-      tools.jackson.databind.ObjectMapper json) {
-    return new com.opentooling.loggate.security.ClientRoleOidcUserService(json);
+  com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService() {
+    return new com.opentooling.loggate.security.ClientRoleOidcUserService();
   }
 
   @Bean
@@ -69,7 +53,8 @@ public class SecurityConfig {
       HttpSecurity http,
       com.opentooling.loggate.security.ClientRoleOidcUserService oidcUserService,
       org.springframework.security.oauth2.client.registration.ClientRegistrationRepository
-          registrations)
+          registrations,
+      tools.jackson.databind.ObjectMapper json)
       throws Exception {
     return http.authorizeHttpRequests(
             auth ->
@@ -96,22 +81,14 @@ public class SecurityConfig {
                 logout
                     .logoutSuccessHandler(
                         new com.opentooling.loggate.security.SpaLogoutSuccessHandler(
-                            registrations, WELCOME_PAGE))
+                            registrations, WELCOME_PAGE, json))
                     .permitAll())
-        // The SPA reads the CSRF cookie and echoes it back, so it must not be
-        // HttpOnly. It is not a secret: it defends against cross-origin writes.
-        //
-        // The request handler matters as much as the repository. Since Spring
-        // Security 6 the token is loaded lazily, so the cookie is only written
-        // when something actually reads the token - and a JSON API never does.
-        // The SPA would then find no cookie to echo and every write would be
-        // refused with an empty 403. Clearing the request attribute name opts
-        // out of deferred loading, so the cookie is issued on every response.
-        .csrf(
-            csrf ->
-                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                    .csrfTokenRequestHandler(new SpaCsrfSupport.SpaCsrfTokenRequestHandler()))
-        .addFilterAfter(new SpaCsrfSupport.CsrfCookieFilter(), BasicAuthenticationFilter.class)
+        // The SPA reads the CSRF cookie and echoes it back in a header, so the
+        // cookie is not HttpOnly; it is not a secret, it defends against
+        // cross-origin writes. spa() also loads the token eagerly: deferred,
+        // the cookie would only be written when something read the token, a
+        // JSON API never does, and every write would be refused with a 403.
+        .csrf(csrf -> csrf.spa())
         // An unauthenticated API call should be a 401 the SPA can act on, not a
         // redirect that a fetch() cannot follow usefully. Anyone else arriving
         // without a session lands on the welcome page, which says what LogGate

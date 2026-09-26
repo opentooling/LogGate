@@ -2,6 +2,7 @@ package com.opentooling.loggate.web;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,5 +53,23 @@ class CsrfCookieTest {
         .andExpect(status().isOk())
         .andExpect(cookie().exists("XSRF-TOKEN"))
         .andExpect(cookie().httpOnly("XSRF-TOKEN", false));
+  }
+
+  @Test
+  void acceptsAWriteThatEchoesTheCookieInTheHeaderAndRefusesOneThatDoesNot() throws Exception {
+    // What the SPA does: read the raw token from the cookie, send it back as
+    // X-XSRF-TOKEN. A masked token would be expected from a form, not here.
+    jakarta.servlet.http.Cookie token =
+        mvc.perform(get("/api/me").with(oidcLogin())).andReturn().getResponse().getCookie("XSRF-TOKEN");
+
+    mvc.perform(
+            post("/logout")
+                .with(oidcLogin())
+                .cookie(token)
+                .header("X-XSRF-TOKEN", token.getValue())
+                .accept(org.springframework.http.MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk());
+    mvc.perform(post("/logout").with(oidcLogin()).cookie(token))
+        .andExpect(status().isForbidden());
   }
 }

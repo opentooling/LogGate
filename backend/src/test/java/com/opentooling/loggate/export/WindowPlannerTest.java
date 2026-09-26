@@ -18,7 +18,7 @@ class WindowPlannerTest {
     return new WindowPlanner(
         TestProperties.of(
             new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", ""),
-            new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), ""),
+            new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), "", ""),
             new LogGateProperties.Windows(targetBytes, min, max, maxCount)));
   }
 
