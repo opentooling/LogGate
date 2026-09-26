@@ -75,8 +75,12 @@ public class JobsConfig {
   }
 
   @Bean
-  S3Client s3Client(LogGateProperties properties) {
-    return com.opentooling.loggate.storage.S3Clients.client(properties.storage());
+  S3Client s3Client(
+      LogGateProperties properties,
+      org.springframework.beans.factory.ObjectProvider<org.springframework.boot.ssl.SslBundles>
+          bundles) {
+    return com.opentooling.loggate.storage.S3Clients.client(
+        properties.storage(), Tls.bundle(bundles, properties.storage().sslBundle()));
   }
 
   @Bean

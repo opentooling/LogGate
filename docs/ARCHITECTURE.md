@@ -434,6 +434,12 @@ session and load nothing that needs one. The guide is built from
 `docs/USER-GUIDE.md` with every UI build, so the published guide and the
 repository's are the same document.
 
+**Cross-site request forgery** is handled by Spring Security's `csrf().spa()`:
+the token is issued eagerly in a readable `XSRF-TOKEN` cookie and every write
+echoes it in the `X-XSRF-TOKEN` header, which another origin cannot read or
+set. API errors are answered in one place, `ApiErrors`, as a status and a
+message the page shows as it is.
+
 **Signing out** ends the identity provider's session as well as LogGate's,
 through OIDC RP-initiated logout; ending only LogGate's would sign the same
 person straight back in on the next page load. The page posts to `/logout`
@@ -537,6 +543,18 @@ authority, which `storage.caCertificate` trusts for storage calls alone,
 leaving the rest of the JVM's trust untouched. The bundle may come from a
 Secret or a ConfigMap: a CA certificate is public, and a ConfigMap is where
 OpenShift's trusted-CA-bundle injection writes one.
+
+**Trust for internal certificate authorities.** Storage, Loki and the metrics
+store each take a Spring Boot SSL bundle (`spring.ssl.bundle.pem.<name>`),
+named by `loggate.<client>.ssl-bundle`; the chart turns each
+`caCertificate` into one. A bundle's trust store replaces the JVM's for that
+client alone. The identity provider cannot work this way: Spring Security
+discovers it from the issuer URI through a `RestTemplate` of its own that
+nothing can configure, so its CA is added to the platform's roots as the JVM's
+default `SSLContext`. `OidcTrust` does that from `META-INF/spring.factories`,
+as soon as the environment is ready and before any bean exists, because every
+client built without trust of its own captures the default when it is built;
+installed from a bean, which clients saw it would depend on creation order.
 
 Locally, `deploy/local/deploy.sh` creates a k3d cluster and installs Loki,
 Alloy, Grafana and Versity S3 Gateway alongside it, so the full path is exercised on a

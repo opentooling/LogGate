@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.opentooling.loggate.audit.AuditLog;
 import com.opentooling.loggate.security.AdminPolicy;
 import com.opentooling.loggate.security.AuthenticatedUser;
-import com.opentooling.loggate.web.ExportController.ApiError;
+import com.opentooling.loggate.web.ApiErrors.ApiError;
 
 /**
  * The audit trail of downloads, for administrators: who took which export's
@@ -52,8 +52,7 @@ public class AuditController {
       return ResponseEntity.status(403).body(new ApiError(notAdmin(admins)));
     }
     if (limit < 1 || limit > MAX_PAGE) {
-      return ResponseEntity.badRequest()
-          .body(new ApiError("limit must be between 1 and " + MAX_PAGE));
+      throw new IllegalArgumentException("limit must be between 1 and " + MAX_PAGE);
     }
     return ResponseEntity.ok(new DownloadsResponse(log.downloads(limit, before), log.totals()));
   }

@@ -175,35 +175,17 @@ class S3ClientsTest {
   }
 
   @Test
-  void trustsAnInternalAuthorityForStorageCalls() throws Exception {
-    Path pem = Path.of(getClass().getResource("/tls/test-ca.pem").toURI());
-
-    X509TrustManager trust = (X509TrustManager) S3Clients.trustManagers(pem)[0];
-
-    assertThat(trust.getAcceptedIssuers())
+  void trustsAnInternalAuthorityForStorageCallsFromAnSslBundle() {
+    // The bundle's trust store replaces the JVM's for storage calls alone.
+    var trust = com.opentooling.loggate.TestTls.bundle();
+    assertThat(((X509TrustManager) trust.getManagers().getTrustManagers()[0]).getAcceptedIssuers())
         .extracting(c -> c.getSubjectX500Principal().getName())
         .containsExactly("CN=LogGate test storage CA");
-    // And a client can be built with it.
+
     try (S3Client client =
-        S3Clients.client(storage(LogGateProperties.Storage.Checksums.WHEN_REQUIRED, pem.toString()))) {
+        S3Clients.client(storage(LogGateProperties.Storage.Checksums.WHEN_REQUIRED, ""), trust)) {
       assertThat(client).isNotNull();
     }
-  }
-
-  @Test
-  void refusesACertificateFileWithNoCertificates(@TempDir Path dir) throws IOException {
-    Path empty = Files.writeString(dir.resolve("empty.pem"), "");
-
-    assertThatThrownBy(() -> S3Clients.trustManagers(empty)).isInstanceOf(IllegalStateException.class);
-  }
-
-  @Test
-  void saysWhichCertificateFileItCouldNotRead(@TempDir Path dir) {
-    Path missing = dir.resolve("missing.pem");
-
-    assertThatThrownBy(() -> S3Clients.trustManagers(missing))
-        .isInstanceOf(UncheckedIOException.class)
-        .hasMessageContaining("missing.pem");
   }
 
   @Test

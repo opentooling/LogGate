@@ -168,13 +168,17 @@ jobs:
 
       # A CA bundle is public, so it may come from a ConfigMap as well as a
       # Secret; each must mount where the application reads it, and setting
-      # both must not render.
+      # both must not render. Storage, the metrics store and Loki each get an
+      # SSL bundle of their own; the identity provider's CA is a file.
       - name: Render CA certificates from a Secret and a ConfigMap
         run: |
           helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
             --set storage.caCertificate.configMapName=trusted-ca \
             --set storage.caCertificate.key=ca-bundle.crt \
-            --set oidc.caCertificate.secretName=idp-ca > ca.yaml
+            --set oidc.caCertificate.secretName=idp-ca \
+            --set pods.caCertificate.configMapName=service-ca \
+            --set pods.caCertificate.key=service-ca.crt \
+            --set loki.caCertificate.secretName=loki-ca > ca.yaml
           python3 - <<'PY'
           import yaml
           app = next(d for d in yaml.safe_load_all(open("ca.yaml")) if d and d["kind"] == "Deployment")
@@ -182,10 +186,18 @@ jobs:
           volumes = {v["name"]: v for v in pod["volumes"]}
           assert volumes["storage-ca"]["configMap"]["name"] == "trusted-ca", volumes
           assert volumes["oidc-ca"]["secret"]["secretName"] == "idp-ca", volumes
+          assert volumes["pods-ca"]["configMap"]["name"] == "service-ca", volumes
+          assert volumes["loki-ca"]["secret"]["secretName"] == "loki-ca", volumes
+          mounts = {m["name"]: m["mountPath"] for m in pod["containers"][0]["volumeMounts"]}
           env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
-          assert env["S3_CA_CERTIFICATE"] == "/etc/loggate/storage-ca/ca-bundle.crt", env
+          for setting, bundle, key in [("S3_SSL_BUNDLE", "storage", "ca-bundle.crt"),
+                                       ("PODS_SSL_BUNDLE", "pods", "service-ca.crt"),
+                                       ("LOKI_SSL_BUNDLE", "loki", "ca.crt")]:
+            assert env[setting] == bundle, env
+            path = env[f"SPRING_SSL_BUNDLE_PEM_{bundle.upper()}_TRUSTSTORE_CERTIFICATE"]
+            assert path == f"file:{mounts[bundle + '-ca']}/{key}", (path, mounts)
           assert env["OIDC_CA_CERTIFICATE"] == "/etc/loggate/oidc-ca/ca.crt", env
-          print("CA certificates mount from both sources.")
+          print("CA certificates mount from both sources, as SSL bundles.")
           PY
           if helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
               --set storage.caCertificate.configMapName=a \

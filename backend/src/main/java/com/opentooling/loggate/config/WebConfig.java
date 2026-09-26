@@ -56,6 +56,12 @@ public class WebConfig {
     };
   }
 
+  /** Answers every controller's refusals the same way; see ApiErrors. */
+  @Bean
+  com.opentooling.loggate.web.ApiErrors apiErrors() {
+    return new com.opentooling.loggate.web.ApiErrors();
+  }
+
   @Bean
   AdminPolicy adminPolicy(@Value("${loggate.access.admin-role:loggate-admin}") String role) {
     return new AdminPolicy(role);

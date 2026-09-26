@@ -59,8 +59,7 @@ class ClientRoleOidcUserServiceTest {
     OidcIdToken id = idToken(idClaims);
     ClientRoleOidcUserService service =
         new ClientRoleOidcUserService(
-            request -> new DefaultOidcUser(Set.of(new SimpleGrantedAuthority("OIDC_USER")), id),
-            JSON);
+            request -> new DefaultOidcUser(Set.of(new SimpleGrantedAuthority("OIDC_USER")), id));
     return service.loadUser(
         new OidcUserRequest(
             registration(nameAttribute),
@@ -133,6 +132,21 @@ class ClientRoleOidcUserServiceTest {
 
   @Test
   void treatsAMissingTokenAsCarryingNoRoles() {
-    assertThat(new ClientRoleOidcUserService(JSON).accessTokenClaims(null).isEmpty()).isTrue();
+    assertThat(ClientRoleOidcUserService.accessTokenClaims(null)).isEmpty();
+  }
+
+  @Test
+  void grantsNoRolesFromAnEncryptedToken() {
+    // Five parts, a JWE: it parses, but nothing in it can be read without the key.
+    Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+    String header =
+        encoder.encodeToString(
+            "{\"alg\":\"RSA-OAEP\",\"enc\":\"A256GCM\"}".getBytes(StandardCharsets.UTF_8));
+    String part = encoder.encodeToString("x".getBytes(StandardCharsets.UTF_8));
+
+    assertThat(
+            ClientRoleOidcUserService.accessTokenClaims(
+                String.join(".", header, part, part, part, part)))
+        .isEmpty();
   }
 }

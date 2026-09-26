@@ -25,7 +25,7 @@ class AuthorizationConfigTest {
       LogGateProperties.AccessMode mode, String role, String clusterLabel, String localCluster) {
     return new LogGateProperties(
         new LogGateProperties.Namespaces(true, "xyz.com/team", "ad-{team}-{env}", "dev", localCluster),
-        new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), clusterLabel),
+        new LogGateProperties.Loki("http://loki.test", "", 5000, Duration.ofSeconds(30), clusterLabel, ""),
         TestProperties.windows(),
         TestProperties.quotas(),
         TestProperties.execution(),

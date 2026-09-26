@@ -1,19 +1,8 @@
 package com.opentooling.loggate.storage;
 
 import com.opentooling.loggate.config.LogGateProperties;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.GeneralSecurityException;
-import java.security.KeyStore;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
-import java.util.Collection;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
+import org.springframework.boot.ssl.SslBundle;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
@@ -39,9 +28,21 @@ public final class S3Clients {
 
   private S3Clients() {}
 
-  /** The client that reads, writes and deletes export artifacts. */
+  /** The client that reads, writes and deletes export artifacts, with the JVM's trust. */
   public static S3Client client(LogGateProperties.Storage storage) {
-    return builder(storage).build();
+    return client(storage, null);
+  }
+
+  /**
+   * The client that reads, writes and deletes export artifacts.
+   *
+   * @param trust an SSL bundle whose trust store replaces the JVM's for storage
+   *     calls, for a store behind an internal certificate authority, which is
+   *     how an on-premises ONTAP or StorageGRID endpoint is usually presented;
+   *     null keeps the JVM's
+   */
+  public static S3Client client(LogGateProperties.Storage storage, SslBundle trust) {
+    return builder(storage, trust).build();
   }
 
   /**
@@ -49,10 +50,13 @@ public final class S3Clients {
    * requests it makes without changing how it makes them.
    */
   public static S3ClientBuilder builder(LogGateProperties.Storage storage) {
+    return builder(storage, null);
+  }
+
+  static S3ClientBuilder builder(LogGateProperties.Storage storage, SslBundle trust) {
     Apache5HttpClient.Builder http = Apache5HttpClient.builder();
-    if (!storage.caCertificate().isBlank()) {
-      TrustManager[] trust = trustManagers(Path.of(storage.caCertificate()));
-      http.tlsTrustManagersProvider(() -> trust);
+    if (trust != null) {
+      http.tlsTrustManagersProvider(() -> trust.getManagers().getTrustManagers());
     }
     return S3Client.builder()
         .endpointOverride(URI.create(storage.endpoint()))
@@ -104,35 +108,5 @@ public final class S3Clients {
         ? DefaultCredentialsProvider.builder().build()
         : StaticCredentialsProvider.create(
             AwsBasicCredentials.create(storage.accessKey(), storage.secretKey()));
-  }
-
-  /**
-   * Trust for a store behind an internal certificate authority, which is how
-   * an on-premises ONTAP or StorageGRID endpoint is usually presented. The
-   * certificates in the file are trusted for storage calls only, in place of
-   * the JVM's defaults, and nothing else in the application is affected.
-   */
-  static TrustManager[] trustManagers(Path pem) {
-    try (InputStream in = Files.newInputStream(pem)) {
-      Collection<? extends Certificate> certificates =
-          CertificateFactory.getInstance("X.509").generateCertificates(in);
-      if (certificates.isEmpty()) {
-        throw new IllegalStateException("no certificates in " + pem);
-      }
-      KeyStore store = KeyStore.getInstance(KeyStore.getDefaultType());
-      store.load(null, null);
-      int i = 0;
-      for (Certificate certificate : certificates) {
-        store.setCertificateEntry("storage-ca-" + i++, certificate);
-      }
-      TrustManagerFactory factory =
-          TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-      factory.init(store);
-      return factory.getTrustManagers();
-    } catch (IOException e) {
-      throw new UncheckedIOException("could not read the storage CA certificate " + pem, e);
-    } catch (GeneralSecurityException e) {
-      throw new IllegalStateException("could not load the storage CA certificate " + pem, e);
-    }
   }
 }

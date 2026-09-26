@@ -47,6 +47,8 @@ loggate:
     # The stream label naming each log's source cluster, when Loki holds more
     # than one. Empty turns the cluster dimension off.
     cluster-label: ${LOKI_CLUSTER_LABEL:}
+    # The SSL bundle (spring.ssl.bundle.*) to trust for Loki; empty keeps the JVM's.
+    ssl-bundle: ${LOKI_SSL_BUNDLE:}
   windows:
     target-bytes: ${WINDOW_TARGET_BYTES:268435456}
     min-duration: ${WINDOW_MIN_DURATION:1m}
@@ -79,7 +81,10 @@ loggate:
     # WHEN_REQUIRED unless the store is AWS S3 itself: most S3-compatible
     # stores do not accept the trailing checksums the SDK adds by default.
     checksums: ${S3_CHECKSUMS:WHEN_REQUIRED}
-    ca-certificate: ${S3_CA_CERTIFICATE:}
+    # The SSL bundle (spring.ssl.bundle.*) to trust for storage, in place of the
+    # JVM's trust; empty keeps the JVM's.
+    ssl-bundle: ${S3_SSL_BUNDLE:}
+  # A file, not a bundle: it is read before the context exists. See OidcTrust.
   oidc:
     ca-certificate: ${OIDC_CA_CERTIFICATE:}
   # Where pods are listed from: a Prometheus-compatible API holding one series
@@ -92,7 +97,7 @@ loggate:
     cluster-label: ${PODS_CLUSTER_LABEL:}
     tenant-id: ${PODS_TENANT_ID:}
     bearer-token-file: ${PODS_BEARER_TOKEN_FILE:}
-    ca-certificate: ${PODS_CA_CERTIFICATE:}
+    ssl-bundle: ${PODS_SSL_BUNDLE:}
     timeout: ${PODS_TIMEOUT:10s}
     max-pods: ${PODS_MAX:1000}
     # Whether pods may be matched by pattern, not only picked from the list.

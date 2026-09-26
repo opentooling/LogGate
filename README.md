@@ -152,7 +152,7 @@ The settings that change how LogGate behaves:
 | `namespaces.cluster` | this cluster's name, which team-label mode pins exports to |
 | `openshift.enabled`, `route.enabled` | run under `restricted-v2`, served by a Route |
 | `storage.checksums` | `whenRequired` (default) for S3-compatible stores; `whenSupported` for AWS only |
-| `storage.caCertificate`, `oidc.caCertificate`, `pods.caCertificate` | a Secret (`secretName`) or ConfigMap (`configMapName`) holding the CA to trust for storage, the identity provider, or the metrics store |
+| `storage.caCertificate`, `loki.caCertificate`, `pods.caCertificate`, `oidc.caCertificate` | a Secret (`secretName`) or ConfigMap (`configMapName`) holding the CA to trust for storage, Loki, the metrics store or the identity provider. The first three become Spring Boot SSL bundles that replace the JVM's trust for that client alone; the identity provider's is added to the JVM's roots, since Spring Security discovers the issuer with a client nothing else can configure |
 | `pods.metricsUrl` | a Prometheus-compatible API to list pods from; empty leaves the pod pattern as the only way to narrow by pod |
 | `pods.metric`, `pods.podLabel`, `pods.namespaceLabel`, `pods.clusterLabel` | the series with one entry per pod, and its labels; `kube_pod_info`, `pod`, `namespace` and Loki's cluster label by default |
 | `pods.allowPattern` | whether pods may also be matched by a glob; `false` limits narrowing to pods picked from the list, and the API refuses a pattern |

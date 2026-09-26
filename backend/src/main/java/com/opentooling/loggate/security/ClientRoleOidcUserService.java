@@ -1,7 +1,9 @@
 package com.opentooling.loggate.security;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.JWTParser;
+import java.text.ParseException;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -12,8 +14,6 @@ import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * Signs a user in as Spring would, and records the roles they hold on
@@ -29,7 +29,8 @@ import tools.jackson.databind.ObjectMapper;
  * <p>The access token is read without checking its signature. It came from the
  * provider's token endpoint over LogGate's own connection, in the same response
  * as the ID token that was verified, so it is exactly as trustworthy as that
- * ID token. A token that is not a JWT simply carries no roles.
+ * ID token. It is read with Nimbus, which Spring Security already uses for the
+ * ID token. A token that is not a readable JWT simply carries no roles.
  *
  * <p>The same claim in the ID token is honoured too, for providers configured
  * to put it there.
@@ -37,15 +38,13 @@ import tools.jackson.databind.ObjectMapper;
 public class ClientRoleOidcUserService implements OAuth2UserService<OidcUserRequest, OidcUser> {
 
   private final OAuth2UserService<OidcUserRequest, OidcUser> delegate;
-  private final ObjectMapper json;
 
-  public ClientRoleOidcUserService(ObjectMapper json) {
-    this(new OidcUserService(), json);
+  public ClientRoleOidcUserService() {
+    this(new OidcUserService());
   }
 
-  ClientRoleOidcUserService(OAuth2UserService<OidcUserRequest, OidcUser> delegate, ObjectMapper json) {
+  ClientRoleOidcUserService(OAuth2UserService<OidcUserRequest, OidcUser> delegate) {
     this.delegate = delegate;
-    this.json = json;
   }
 
   @Override
@@ -55,7 +54,7 @@ public class ClientRoleOidcUserService implements OAuth2UserService<OidcUserRequ
 
     Set<String> roles = new LinkedHashSet<>();
     roles.addAll(rolesIn(accessTokenClaims(request.getAccessToken().getTokenValue()), clientId));
-    roles.addAll(rolesIn(json.valueToTree(user.getIdToken().getClaims()), clientId));
+    roles.addAll(rolesIn(user.getIdToken().getClaims(), clientId));
 
     Set<GrantedAuthority> authorities = new LinkedHashSet<>(user.getAuthorities());
     roles.forEach(
@@ -68,27 +67,31 @@ public class ClientRoleOidcUserService implements OAuth2UserService<OidcUserRequ
         : new DefaultOidcUser(authorities, user.getIdToken(), user.getUserInfo(), nameAttribute);
   }
 
-  /** The claims of a JWT access token, or nothing when it is not one. */
-  JsonNode accessTokenClaims(String token) {
-    String[] parts = token == null ? new String[0] : token.split("\\.");
-    if (parts.length != 3) {
-      return json.valueToTree(Map.of());
+  /** The claims of a JWT access token, or none when it is not a readable one. */
+  static Map<String, Object> accessTokenClaims(String token) {
+    if (token == null) {
+      return Map.of();
     }
     try {
-      byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
-      return json.readTree(new String(payload, StandardCharsets.UTF_8));
-    } catch (IllegalArgumentException | tools.jackson.core.JacksonException e) {
+      // An encrypted token parses, but its claims are unreadable without the key.
+      JWTClaimsSet claims = JWTParser.parse(token).getJWTClaimsSet();
+      return claims == null ? Map.of() : claims.getClaims();
+    } catch (ParseException e) {
       // Opaque or malformed: no roles can be read from it, which denies rather
       // than fails the sign-in.
-      return json.valueToTree(Map.of());
+      return Map.of();
     }
   }
 
-  private static Set<String> rolesIn(JsonNode claims, String clientId) {
+  private static Set<String> rolesIn(Map<String, Object> claims, String clientId) {
     Set<String> roles = new LinkedHashSet<>();
-    for (JsonNode role : claims.path("resource_access").path(clientId).path("roles")) {
-      if (role.isString() && !role.asString().isBlank()) {
-        roles.add(role.asString());
+    if (claims.get("resource_access") instanceof Map<?, ?> clients
+        && clients.get(clientId) instanceof Map<?, ?> client
+        && client.get("roles") instanceof Collection<?> names) {
+      for (Object name : names) {
+        if (name instanceof String role && !role.isBlank()) {
+          roles.add(role);
+        }
       }
     }
     return roles;

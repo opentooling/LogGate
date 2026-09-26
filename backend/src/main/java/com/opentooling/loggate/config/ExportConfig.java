@@ -24,13 +24,20 @@ public class ExportConfig {
    * blocked forever on one query is worse than one that fails and retries.
    */
   @Bean
-  RestClient lokiRestClient(LogGateProperties properties) {
-    JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
-    requestFactory.setReadTimeout(properties.loki().timeout());
-    return RestClient.builder()
-        .baseUrl(properties.loki().url())
-        .requestFactory(requestFactory)
-        .build();
+  RestClient lokiRestClient(
+      LogGateProperties properties,
+      org.springframework.beans.factory.ObjectProvider<org.springframework.boot.ssl.SslBundles>
+          bundles) {
+    return lokiRestClient(
+        properties.loki(), Tls.bundle(bundles, properties.loki().sslBundle()));
+  }
+
+  static RestClient lokiRestClient(
+      LogGateProperties.Loki loki, org.springframework.boot.ssl.SslBundle trust) {
+    JdkClientHttpRequestFactory requestFactory =
+        new JdkClientHttpRequestFactory(Tls.httpClient(trust).build());
+    requestFactory.setReadTimeout(loki.timeout());
+    return RestClient.builder().baseUrl(loki.url()).requestFactory(requestFactory).build();
   }
 
   @Bean

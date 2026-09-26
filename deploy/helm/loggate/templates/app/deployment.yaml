@@ -34,6 +34,7 @@ spec:
     {{- $oidcCa := include "loggate.caSource" (dict "ca" .Values.oidc.caCertificate "name" "oidc.caCertificate") | trim }}
     {{- $storageCa := include "loggate.caSource" (dict "ca" .Values.storage.caCertificate "name" "storage.caCertificate") | trim }}
     {{- $podsCa := include "loggate.caSource" (dict "ca" .Values.pods.caCertificate "name" "pods.caCertificate") | trim }}
+    {{- $lokiCa := include "loggate.caSource" (dict "ca" .Values.loki.caCertificate "name" "loki.caCertificate") | trim }}
     spec:
       serviceAccountName: {{ include "loggate.fullname" . }}
       {{- with .Values.hostAliases }}
@@ -153,6 +154,9 @@ spec:
               value: {{ .Values.loki.url | quote }}
             - name: LOKI_CLUSTER_LABEL
               value: {{ .Values.loki.clusterLabel | quote }}
+            {{- if $lokiCa }}
+            {{- include "loggate.sslBundleEnv" (dict "setting" "LOKI_SSL_BUNDLE" "bundle" "loki" "ca" .Values.loki.caCertificate) | nindent 12 }}
+            {{- end }}
             - name: ACCESS_MODE
               value: {{ include "loggate.accessMode" . | quote }}
             - name: ACCESS_OPEN_ROLE
@@ -176,8 +180,7 @@ spec:
             - name: S3_CHECKSUMS
               value: {{ if eq .Values.storage.checksums "whenSupported" }}WHEN_SUPPORTED{{ else if eq .Values.storage.checksums "whenRequired" }}WHEN_REQUIRED{{ else }}{{ fail (printf "storage.checksums must be whenRequired or whenSupported, not %q" .Values.storage.checksums) }}{{ end }}
             {{- if $storageCa }}
-            - name: S3_CA_CERTIFICATE
-              value: /etc/loggate/storage-ca/{{ .Values.storage.caCertificate.key | default "ca.crt" }}
+            {{- include "loggate.sslBundleEnv" (dict "setting" "S3_SSL_BUNDLE" "bundle" "storage" "ca" .Values.storage.caCertificate) | nindent 12 }}
             {{- end }}
             {{- with .Values.storage.publicEndpoint }}
             - name: S3_PUBLIC_ENDPOINT
@@ -218,8 +221,7 @@ spec:
             {{- end }}
             {{- end }}
             {{- if $podsCa }}
-            - name: PODS_CA_CERTIFICATE
-              value: /etc/loggate/pods-ca/{{ .Values.pods.caCertificate.key | default "ca.crt" }}
+            {{- include "loggate.sslBundleEnv" (dict "setting" "PODS_SSL_BUNDLE" "bundle" "pods" "ca" .Values.pods.caCertificate) | nindent 12 }}
             {{- end }}
             - name: WORKERS_ENABLED
               value: {{ .Values.execution.enabled | quote }}
@@ -301,6 +303,11 @@ spec:
               mountPath: /etc/loggate/pods-ca
               readOnly: true
             {{- end }}
+            {{- if $lokiCa }}
+            - name: loki-ca
+              mountPath: /etc/loggate/loki-ca
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -314,6 +321,10 @@ spec:
         {{- end }}
         {{- with $podsCa }}
         - name: pods-ca
+          {{- . | nindent 10 }}
+        {{- end }}
+        {{- with $lokiCa }}
+        - name: loki-ca
           {{- . | nindent 10 }}
         {{- end }}
       {{- with .Values.nodeSelector }}

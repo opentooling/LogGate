@@ -190,3 +190,17 @@ configMap:
       path: {{ $ca.key | default "ca.crt" }}
 {{- end -}}
 {{- end -}}
+
+{{- /*
+The settings that make a client trust a mounted CA: an SSL bundle named after
+the client, whose trust store is the file, and the client's setting naming that
+bundle. Takes a dict of `setting` (the env var naming the bundle), `bundle` (its
+name, which is also the mount directory's prefix) and `ca` (the caCertificate
+values).
+*/}}
+{{- define "loggate.sslBundleEnv" -}}
+- name: {{ .setting }}
+  value: {{ .bundle }}
+- name: SPRING_SSL_BUNDLE_PEM_{{ upper .bundle }}_TRUSTSTORE_CERTIFICATE
+  value: file:/etc/loggate/{{ .bundle }}-ca/{{ .ca.key | default "ca.crt" }}
+{{- end -}}

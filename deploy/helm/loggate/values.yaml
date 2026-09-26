@@ -262,9 +262,10 @@ pods:
   # this release's service account.
   bearerToken:
     serviceAccount: false
-  # A CA to trust for metricsUrl, from a Secret or a ConfigMap. On OpenShift, a
-  # ConfigMap annotated service.beta.openshift.io/inject-cabundle=true gets the
-  # service CA under service-ca.crt.
+  # A CA to trust for metricsUrl, from a Secret or a ConfigMap; it replaces the
+  # JVM's trust for metrics calls only. On OpenShift, a ConfigMap annotated
+  # service.beta.openshift.io/inject-cabundle=true gets the service CA under
+  # service-ca.crt.
   caCertificate:
     secretName: ""
     configMapName: ""
@@ -364,6 +365,13 @@ loki:
   # by each cluster's log shipper). Empty when it holds one. When set, the page
   # offers a choice of cluster.
   clusterLabel: ""
+  # A CA to trust for url, from a Secret or a ConfigMap, for a Loki behind an
+  # internal certificate authority. It replaces the JVM's trust for Loki calls
+  # only.
+  caCertificate:
+    secretName: ""
+    configMapName: ""
+    key: ca.crt
 
 # -- Extra Kubernetes objects to deploy with the release, e.g. custom resources.
 # Items can be YAML objects or strings; both are rendered with `tpl`, so template
