@@ -271,6 +271,9 @@ public class ExportController {
     audit.record(user.subject(), action, job.id(), detail, ClientAddress.of(httpRequest));
   }
 
+  private static final org.springframework.http.MediaType ZIP =
+      org.springframework.http.MediaType.parseMediaType("application/zip");
+
   /**
    * The whole export as one archive, streamed.
    *
@@ -289,7 +292,10 @@ public class ExportController {
     // halfway has still handed over half the data.
     recordDownload(principal, job, AuditAction.ARCHIVE_DOWNLOADED, null, httpRequest);
     StreamingResponseBody body = out -> delivery.streamArchive(job, out);
+    // Named here: a stream has no type of its own, and produces only narrows
+    // which requests this answers.
     return ResponseEntity.ok()
+        .contentType(ZIP)
         .header("Content-Disposition", "attachment; filename=\"loggate-" + id + ".zip\"")
         .body(body);
   }

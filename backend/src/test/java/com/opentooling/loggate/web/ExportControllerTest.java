@@ -529,6 +529,11 @@ class ExportControllerTest {
             org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(
                 started))
         .andExpect(status().isOk())
+        // Named, not left for the browser to guess: a stream carries no type
+        // of its own, and produces only narrows which requests match.
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                .contentType("application/zip"))
         .andExpect(
             org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
                 .string("Content-Disposition", "attachment; filename=\"loggate-" + id + ".zip\""));
