@@ -19,8 +19,9 @@ async function openChip(page: Page, name: string) {
   return page.getByTestId(`${name}-panel`);
 }
 
-/** The export's size, once it has been asked for. */
+/** Asks for the export's size, and waits for it. */
 async function sized(page: Page) {
+  await page.getByTestId("estimate-button").click();
   const estimate = page.getByTestId("estimate");
   await expect(estimate).toContainText(/≈ .*(B|KB|MB|GB)/, { timeout: 30_000 });
   return estimate;
@@ -265,6 +266,34 @@ test.describe("LogGate", () => {
     await expect(panel).toContainText("Your allowance");
     await expect(panel).toContainText("platform");
     await expect(panel).toContainText("Finished exports are kept for");
+  });
+
+  test("the size is asked for, not fetched as the choices change", async ({ page }) => {
+    // Each estimate asks Loki for a volume and may sample the range, so none
+    // is made until someone asks for it.
+    let estimates = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/exports/estimate")) estimates++;
+    });
+    await signIn(page, "alice");
+
+    const when = await openChip(page, "when");
+    await when.getByRole("button", { name: "Last 6 hours" }).click();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1500);
+    expect(estimates).toBe(0);
+    await expect(page.getByRole("button", { name: "Start export" })).toBeEnabled();
+
+    await sized(page);
+    expect(estimates).toBe(1);
+
+    // A change clears a size that no longer describes the query, and asks nothing.
+    const again = await openChip(page, "when");
+    await again.getByRole("button", { name: "Last hour" }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("estimate-button")).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(estimates).toBe(1);
   });
 
   test("an estimate carries the quota verdict with it", async ({ page }) => {

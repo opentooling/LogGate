@@ -91,6 +91,7 @@ async function podPattern(page: Page, pattern: string) {
 }
 
 async function sized(page: Page) {
+  await page.getByTestId("estimate-button").click();
   await expect(page.getByTestId("estimate")).toContainText(/≈/, { timeout: 30_000 });
 }
 

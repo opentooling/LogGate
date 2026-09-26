@@ -88,8 +88,8 @@ LogGate cannot see any of them directly.
   and there is a filter box and a *Select all* for when you really mean every
   cluster.
 - **Namespaces.** Tick the ones you want, or none for every namespace in the
-  clusters you chose. The form says which you are about to get, and the
-  estimate shows the size before anything runs.
+  clusters you chose. The form says which you are about to get, and
+  *Estimate size* shows the size before anything runs.
 - **Budget.** With no teams to charge, your exports count against your own
   allowance.
 
@@ -141,11 +141,13 @@ and *Clear*. Escape or *Done* closes it.
 
 ## The size, before it runs
 
-As soon as your choices are complete, LogGate asks Loki how much data they
-cover, **before any of it is read**, and shows the answer beside **Start
-export**. Change anything and it is asked again, so the number always matches
-what is on screen. This is the moment to find out an export is 40 GB rather
-than after waiting for it.
+**Estimate size** asks Loki how much data your choices cover, **before any of
+it is read**, and shows the answer beside **Start export**. It is asked for
+rather than automatic, because each estimate is work for Loki. Change anything
+afterwards and the size is cleared rather than left describing a different
+query. This is the moment to find out an export is 40 GB rather than after
+waiting for it; you can also start without it, and quota is checked either
+way.
 
 - **The size to download**, in large type, and how many files it makes. With
   a *Contains* filter or chosen pods, it is extrapolated from a sample of the

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -17,9 +17,6 @@ import { PRESETS, durationSeconds, rangeFor, toLocalInput } from "./ranges";
 
 /** Waits this long after the last change before asking the server. */
 const SETTLE_MS = 350;
-
-/** Waits longer before sizing, which asks Loki for a volume. */
-const ESTIMATE_SETTLE_MS = 700;
 
 const FORMATS: { value: OutputFormat; label: string; short: string; detail: string }[] = [
   {
@@ -40,8 +37,8 @@ const FORMATS: { value: OutputFormat; label: string; short: string; detail: stri
  * The whole export on one line: what, when, how, its size, and Start.
  *
  * <p>Each chip opens its own panel, so thirty clusters take no more room than
- * three. The size is asked for as the choices settle rather than on a button,
- * so the number that decides whether to start is always the current one.
+ * three. The size is estimated on request rather than as the choices change,
+ * to spare Loki, and cleared by any change so it never describes another query.
  */
 export function QueryBar({
   me,
@@ -180,27 +177,32 @@ export function QueryBar({
     [me, clusters, namespaces, podMode, pods, podPattern, lineFilter, format, from, to],
   );
 
-  // The size, asked for whenever the query settles.
+  // The size is asked for, never fetched as the choices change: each estimate
+  // asks Loki for the volume of the whole range, and sometimes samples it, so
+  // sizing every click would put load on Loki for answers nobody reads. A
+  // change only clears a size that no longer describes the query.
   const requestKey = JSON.stringify(request);
+  const latestKey = useRef(requestKey);
   useEffect(() => {
+    latestKey.current = requestKey;
     setSizing(null);
     setEstimateProblem(null);
-    if (!ready) return;
-    let current = true;
+    setEstimating(false);
+  }, [requestKey]);
+
+  async function estimate() {
+    const asked = requestKey;
     setEstimating(true);
-    const timer = setTimeout(() => {
-      api
-        .estimate(request)
-        .then((result) => current && setSizing(result))
-        .catch((e) => current && setEstimateProblem(e instanceof ApiError ? e.message : String(e)))
-        .finally(() => current && setEstimating(false));
-    }, ESTIMATE_SETTLE_MS);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestKey, ready]);
+    setEstimateProblem(null);
+    try {
+      const result = await api.estimate(request);
+      if (latestKey.current === asked) setSizing(result);
+    } catch (e) {
+      if (latestKey.current === asked) setEstimateProblem(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      if (latestKey.current === asked) setEstimating(false);
+    }
+  }
 
   async function start() {
     setStarting(true);
@@ -431,7 +433,12 @@ export function QueryBar({
           ) : !rangeValid || rangeTooLong ? (
             <span className="field-error">Fix the time range.</span>
           ) : estimateProblem ? (
-            <span className="field-error">{estimateProblem}</span>
+            <>
+              <span className="field-error">{estimateProblem}</span>
+              <button type="button" onClick={estimate} disabled={estimating}>
+                Try again
+              </button>
+            </>
           ) : sizing ? (
             <>
               <strong className="run-bytes">≈ {formatBytes(download!)}</strong>
@@ -441,7 +448,9 @@ export function QueryBar({
               </span>
             </>
           ) : (
-            <span className="quiet">{estimating ? "Sizing…" : ""}</span>
+            <button type="button" onClick={estimate} disabled={estimating} data-testid="estimate-button">
+              {estimating ? "Estimating…" : "Estimate size"}
+            </button>
           )}
         </div>
         <span className="run-spacer" />
@@ -450,7 +459,7 @@ export function QueryBar({
           type="button"
           className="primary"
           onClick={start}
-          disabled={!ready || starting || refused || sizing === null}
+          disabled={!ready || starting || refused}
         >
           {starting ? "Starting…" : "Start export"}
         </button>
