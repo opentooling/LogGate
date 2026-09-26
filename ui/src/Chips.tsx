@@ -1,4 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { coverage, groupOptions, matches, setAll, type Option } from "./picker";
 
 /**
@@ -8,6 +17,12 @@ import { coverage, groupOptions, matches, setAll, type Option } from "./picker";
  * <p>The whole query fits on one line this way, however many clusters or
  * namespaces there are to choose from, and each panel has the room its choice
  * needs. A click outside or Escape closes it; Escape returns focus to the chip.
+ *
+ * <p>A floating chip places its panel against the window rather than inside
+ * its own box, for chips inside something that clips, such as a table that
+ * scrolls sideways: the panel is aligned to the chip's right edge, below it or
+ * above when there is no room below, and closes on scroll or resize rather
+ * than drifting away from the chip.
  */
 export function QueryChip({
   label,
@@ -15,6 +30,7 @@ export function QueryChip({
   testId,
   empty,
   panelWidth = "20rem",
+  floating = false,
   children,
 }: {
   label: string;
@@ -23,12 +39,47 @@ export function QueryChip({
   /** Styled as not yet chosen, e.g. a filter not in use. */
   empty?: boolean;
   panelWidth?: string;
+  /** Placed against the window, for a chip inside something that clips. */
+  floating?: boolean;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [place, setPlace] = useState<CSSProperties | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
+
+  // Measured before paint, so a floating panel never shows in the wrong place.
+  useLayoutEffect(() => {
+    if (!open || !floating || !button.current || !panel.current) {
+      setPlace(null);
+      return;
+    }
+    const chip = button.current.getBoundingClientRect();
+    const height = panel.current.getBoundingClientRect().height;
+    const fitsBelow = chip.bottom + 6 + height <= window.innerHeight - 8;
+    const fitsAbove = chip.top - 6 - height >= 8;
+    setPlace({
+      position: "fixed",
+      top: fitsBelow || !fitsAbove ? chip.bottom + 6 : chip.top - 6 - height,
+      right: Math.max(8, window.innerWidth - chip.right),
+      left: "auto",
+    });
+  }, [open, floating]);
+
+  useEffect(() => {
+    if (!open || !floating) return;
+    const drift = (event: Event) => {
+      if (!(event.target instanceof Node && panel.current?.contains(event.target))) setOpen(false);
+    };
+    window.addEventListener("scroll", drift, true);
+    window.addEventListener("resize", drift);
+    return () => {
+      window.removeEventListener("scroll", drift, true);
+      window.removeEventListener("resize", drift);
+    };
+  }, [open, floating]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,10 +125,15 @@ export function QueryChip({
       {open && (
         <div
           className="qpanel"
+          ref={panel}
           id={panelId}
           role="dialog"
           aria-label={label}
-          style={{ width: panelWidth }}
+          style={
+            floating
+              ? { width: panelWidth, ...(place ?? { position: "fixed", visibility: "hidden" }) }
+              : { width: panelWidth }
+          }
           data-testid={`${testId}-panel`}
         >
           {children(close)}

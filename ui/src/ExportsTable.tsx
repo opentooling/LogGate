@@ -255,13 +255,29 @@ function DownloadMenu({ job, onFiles, filesOpen }: { job: ExportJob; onFiles: ()
   const expiring = secondsUntil(job.expiresAt);
   return (
     <div className="download-menu">
-      <QueryChip label="" value="Download" testId={`download-${job.id.slice(0, 8)}`} panelWidth="17rem">
+      {/* Floating, because the table scrolls sideways on narrow screens and
+          so clips anything that opens inside it. */}
+      <QueryChip
+        label="Download"
+        value="Download"
+        testId={`download-${job.id.slice(0, 8)}`}
+        panelWidth="17rem"
+        floating
+      >
         {(close) => (
           <div className="menu">
-            <a className={how.archive ? "menu-item menu-primary" : "menu-item"} href={`/api/exports/${job.id}/archive.zip`}>
+            <a
+              className={how.archive ? "menu-item menu-primary" : "menu-item"}
+              href={`/api/exports/${job.id}/archive.zip`}
+              onClick={close}
+            >
               Download .zip
             </a>
-            <a className={how.archive ? "menu-item" : "menu-item menu-primary"} href={`/api/exports/${job.id}/download.sh`}>
+            <a
+              className={how.archive ? "menu-item" : "menu-item menu-primary"}
+              href={`/api/exports/${job.id}/download.sh`}
+              onClick={close}
+            >
               Download script
             </a>
             <button

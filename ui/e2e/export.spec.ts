@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const PASSWORD = process.env.DEMO_PASSWORD ?? "loggate";
 
@@ -24,6 +24,15 @@ async function sized(page: Page) {
   const estimate = page.getByTestId("estimate");
   await expect(estimate).toContainText(/≈ .*(B|KB|MB|GB)/, { timeout: 30_000 });
   return estimate;
+}
+
+/** Whether a click at the middle of {@code target} would land on it. */
+async function isOnTop(target: Locator): Promise<boolean> {
+  return target.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit !== null && element.contains(hit);
+  });
 }
 
 test.describe("LogGate", () => {
@@ -90,8 +99,17 @@ test.describe("LogGate", () => {
     await expect(job.locator(".state")).toHaveText("Ready", { timeout: 150_000 });
     await expect(job).toContainText("entries");
     await job.getByRole("button", { name: /Download/ }).click();
-    await expect(job.getByRole("link", { name: "Download script" })).toBeVisible();
-    await expect(job.getByRole("link", { name: "Download .zip" })).toBeVisible();
+    const script = page.getByRole("link", { name: "Download script" });
+    await expect(script).toBeVisible();
+    await expect(page.getByRole("link", { name: "Download .zip" })).toBeVisible();
+    // On top where it is drawn, not merely present: toBeVisible passes for a
+    // menu clipped inside the table, which is how this once shipped unusable.
+    expect(await isOnTop(script)).toBe(true);
+
+    const download = page.waitForEvent("download");
+    await script.click();
+    expect((await download).suggestedFilename()).toMatch(/\.sh$/);
+    await expect(script).toHaveCount(0);
   });
 
   test("finished exports are found by tab and by search, and can be run again", async ({ page }) => {
