@@ -66,6 +66,25 @@ class EntryWriterTest {
   }
 
   @Test
+  void endsEachRawLineOnceWhenLokiKeptTheLogsOwnNewline() {
+    // Collected from a container, a line usually arrives with the newline its
+    // program wrote. Adding another would put a blank line after every entry.
+    long counted;
+    try (var writer = new EntryWriter(sink, JsonMapper.builder().build(), OutputFormat.RAW)) {
+      writer.write(new LogEntry(1L, "first\n", Map.of()));
+      writer.write(new LogEntry(2L, "second\r\n", Map.of()));
+      writer.write(new LogEntry(3L, "third", Map.of()));
+      // Only the one at the end: a multi-line entry keeps its inner lines.
+      writer.write(new LogEntry(4L, "a stack\n  at frame\n", Map.of()));
+      // And an entry that was an empty line is still one.
+      writer.write(new LogEntry(5L, "", Map.of()));
+      counted = writer.uncompressedBytes();
+    }
+    assertThat(written()).isEqualTo("first\nsecond\nthird\na stack\n  at frame\n\n");
+    assertThat(counted).isEqualTo(written().length());
+  }
+
+  @Test
   void countsBytesAsUtf8RatherThanCharacters() {
     try (var writer = new EntryWriter(sink, JsonMapper.builder().build(), OutputFormat.RAW)) {
       writer.write(new LogEntry(1L, "caf\u00e9 \u20ac5 \ud83d\ude00", Map.of()));

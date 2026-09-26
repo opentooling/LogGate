@@ -120,6 +120,10 @@ PART_URL="$(body "$r" | jq_get 'next(f["url"] for f in d if f["name"].endswith("
 first_line="$(curl -s "$PART_URL" | gunzip 2>/dev/null | head -1)"
 check "and hold the lines as logged, not wrapped in JSON" "no" \
   "$([[ "$first_line" == \{\"timestamp* || "$first_line" == \{\"labels* || -z "$first_line" ]] && echo yes || echo no)"
+# Loki keeps the newline each program wrote; ending every entry with another
+# would leave a blank line after each one.
+check "one line per entry, with no blank lines between them" "0" \
+  "$(curl -s "$PART_URL" | gunzip 2>/dev/null | grep -c '^$')"
 
 rm -f "$JAR"
 summary

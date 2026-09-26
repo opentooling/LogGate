@@ -48,7 +48,7 @@ public class EntryWriter implements AutoCloseable {
   public void write(LogEntry entry) {
     String line =
         format == OutputFormat.RAW
-            ? entry.line()
+            ? withoutLineEnding(entry.line())
             : json.writeValueAsString(
                 Map.of(
                     "timestamp", Long.toString(entry.timestampNanos()),
@@ -63,6 +63,25 @@ public class EntryWriter implements AutoCloseable {
     entries++;
     uncompressedBytes += utf8Length(line) + 1L;
     logBytes += utf8Length(entry.line());
+  }
+
+  /**
+   * The line without the one line ending it may have kept.
+   *
+   * <p>Collected from a container, a line usually arrives with the newline its
+   * program wrote, and this writer ends every entry with one of its own; both
+   * would put a blank line after each entry. Only the last is removed, so a
+   * multi-line entry such as a stack trace keeps its inner lines. JSON keeps
+   * the line exactly as stored, since it is quoted there and does no harm.
+   */
+  static String withoutLineEnding(String line) {
+    if (line.endsWith("\r\n")) {
+      return line.substring(0, line.length() - 2);
+    }
+    if (line.endsWith("\n")) {
+      return line.substring(0, line.length() - 1);
+    }
+    return line;
   }
 
   /** How many entries have been written. */
