@@ -43,8 +43,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "loggate.secretName" . }}
-                  key: database-password
+                  {{- include "loggate.databaseSecretRef" . | nindent 18 }}
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:

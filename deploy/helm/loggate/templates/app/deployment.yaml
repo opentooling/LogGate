@@ -115,13 +115,7 @@ spec:
             - name: DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  {{- if and (not .Values.postgres.enabled) .Values.externalDatabase.existingSecret }}
-                  name: {{ .Values.externalDatabase.existingSecret }}
-                  key: {{ .Values.externalDatabase.passwordKey }}
-                  {{- else }}
-                  name: {{ include "loggate.secretName" . }}
-                  key: database-password
-                  {{- end }}
+                  {{- include "loggate.databaseSecretRef" . | nindent 18 }}
             - name: OIDC_ISSUER_URI
               value: {{ include "loggate.issuerUri" . | quote }}
             - name: OIDC_REDIRECT_URI

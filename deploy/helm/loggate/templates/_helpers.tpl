@@ -63,6 +63,30 @@ from under a running PostgreSQL.
 {{- end -}}
 
 {{/*
+Where the database password is read from, by PostgreSQL and the application
+alike: a Secret of the operator's own when one is named for the database in
+use, otherwise the one this chart generates.
+*/}}
+{{- define "loggate.databaseSecretRef" -}}
+{{- $db := ternary .Values.postgres .Values.externalDatabase .Values.postgres.enabled -}}
+{{- if $db.existingSecret -}}
+name: {{ $db.existingSecret }}
+key: {{ $db.passwordKey | default "password" }}
+{{- else -}}
+name: {{ include "loggate.secretName" . }}
+key: database-password
+{{- end -}}
+{{- end -}}
+
+{{/*
+Whether the chart's own Secret has to carry a database password at all.
+*/}}
+{{- define "loggate.generatesDatabasePassword" -}}
+{{- $db := ternary .Values.postgres .Values.externalDatabase .Values.postgres.enabled -}}
+{{- if not $db.existingSecret -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 OIDC client secret, with the same reuse-or-generate rule as the database
 password so an upgrade never rotates it out from under the realm.
 */}}

@@ -64,6 +64,13 @@ postgres:
   image: postgres:17-alpine
   database: loggate
   username: loggate
+  # A Secret of your own holding the password, for instance one written by
+  # External Secrets or Sealed Secrets, in place of the one the chart
+  # generates. It must exist before install. PostgreSQL takes the password only
+  # when it first initialises its volume, so changing it afterwards needs an
+  # ALTER USER as well.
+  existingSecret: ""
+  passwordKey: password
   storage: 8Gi
   resources:
     requests:
