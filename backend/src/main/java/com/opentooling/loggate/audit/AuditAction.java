@@ -19,9 +19,21 @@ public enum AuditAction {
   /** The download script, which carries presigned links to every file, was issued. */
   DOWNLOAD_SCRIPT_ISSUED,
   /** The export was streamed as one .zip through LogGate itself. */
-  ARCHIVE_DOWNLOADED;
+  ARCHIVE_DOWNLOADED,
+  /** Every window was written and the export's files are ready to download. */
+  EXPORT_COMPLETED,
+  /** The export stopped without producing its files: a byte cap, or a source that kept failing. */
+  EXPORT_FAILED;
 
   /** The actions that hand an export's data to someone. */
   public static final java.util.List<AuditAction> DOWNLOADS =
       java.util.List.of(DOWNLOAD_LINKS_ISSUED, DOWNLOAD_SCRIPT_ISSUED, ARCHIVE_DOWNLOADED);
+
+  /** An export's life, from being asked for to its files existing or not. */
+  public static final java.util.List<AuditAction> EXPORTS =
+      java.util.List.of(
+          EXPORT_SUBMITTED, EXPORT_REFUSED, EXPORT_CANCELLED, EXPORT_COMPLETED, EXPORT_FAILED);
+
+  /** Asking for logs one may not have. */
+  public static final java.util.List<AuditAction> DENIALS = java.util.List.of(NAMESPACE_ACCESS_DENIED);
 }

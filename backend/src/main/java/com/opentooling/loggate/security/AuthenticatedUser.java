@@ -29,6 +29,7 @@ public record AuthenticatedUser(
   public static final String CLIENT_ROLE_AUTHORITY = "LOGGATE_CLIENT_ROLE_";
 
   public AuthenticatedUser {
+    name = name == null ? subject : name;
     groups = Set.copyOf(groups);
     clientRoles = Set.copyOf(clientRoles);
   }

@@ -33,6 +33,7 @@ public class ExportWorker {
   private final int maxAttempts;
   private final long checkEveryEntries;
   private final ExportMetrics metrics;
+  private final ExportOutcomes outcomes;
 
   public ExportWorker(
       ExportJobRepository jobs,
@@ -42,8 +43,9 @@ public class ExportWorker {
       String owner,
       Duration lease,
       int maxAttempts,
-      ExportMetrics metrics) {
-    this(jobs, pager, store, json, owner, lease, maxAttempts, 5_000, metrics);
+      ExportMetrics metrics,
+      ExportOutcomes outcomes) {
+    this(jobs, pager, store, json, owner, lease, maxAttempts, 5_000, metrics, outcomes);
   }
 
   /**
@@ -60,7 +62,8 @@ public class ExportWorker {
       Duration lease,
       int maxAttempts,
       long checkEveryEntries,
-      ExportMetrics metrics) {
+      ExportMetrics metrics,
+      ExportOutcomes outcomes) {
     this.jobs = jobs;
     this.pager = pager;
     this.store = store;
@@ -70,6 +73,7 @@ public class ExportWorker {
     this.maxAttempts = maxAttempts;
     this.checkEveryEntries = checkEveryEntries;
     this.metrics = metrics;
+    this.outcomes = outcomes;
   }
 
   /**
@@ -147,7 +151,10 @@ public class ExportWorker {
       metrics.windowFailed("byte_limit");
       metrics.finished("FAILED", FailureCode.BYTE_LIMIT_EXCEEDED.name());
       jobs.failWindow(window.jobId(), window.index(), e.getMessage(), maxAttempts);
-      jobs.finish(window.jobId(), JobState.FAILED, FailureCode.BYTE_LIMIT_EXCEEDED, e.getMessage());
+      if (jobs.finish(
+          window.jobId(), JobState.FAILED, FailureCode.BYTE_LIMIT_EXCEEDED, e.getMessage())) {
+        outcomes.failed(window.jobId(), FailureCode.BYTE_LIMIT_EXCEEDED, e.getMessage());
+      }
 
     } catch (RuntimeException e) {
       String message = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -165,7 +172,9 @@ public class ExportWorker {
           exhausted ? ", giving up" : ", will retry",
           e);
       if (exhausted) {
-        jobs.finish(window.jobId(), JobState.FAILED, code, message);
+        if (jobs.finish(window.jobId(), JobState.FAILED, code, message)) {
+          outcomes.failed(window.jobId(), code, message);
+        }
         metrics.finished("FAILED", code.name());
       }
     }

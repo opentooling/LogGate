@@ -42,6 +42,7 @@ public class AuthorizationGate {
           user.subject(),
           AuditAction.NAMESPACE_ACCESS_DENIED,
           Map.of(
+              "name", user.name(),
               "requested", namespaces,
               "clusters", clusters,
               "denied", decision.denied(),

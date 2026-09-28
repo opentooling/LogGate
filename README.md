@@ -42,8 +42,9 @@ screenshots of each step.
   bounded parallelism, and streamed to object storage as compressed parts.
 - **Delivers** presigned URLs plus a manifest for bulk downloads, or a proxied
   ZIP64 stream for a browser.
-- **Audits** every submission, refusal, cancellation, denied access and
-  download, with an Audit page listing every download for administrators.
+- **Audits** every submission, refusal, cancellation, denied access, export
+  completed or failed, and download, with an Audit page listing them for
+  administrators.
 - **Reports on itself**: Prometheus metrics on a management port that is never
   published, a Grafana dashboard shipped with the chart, and the same picture
   on the app's own Activity page for administrators.

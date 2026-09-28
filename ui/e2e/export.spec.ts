@@ -166,7 +166,7 @@ test.describe("LogGate", () => {
     await expect(page.locator('[data-testid="audit"]')).toHaveCount(0);
   });
 
-  test("the audit page lists downloads", async ({ page }) => {
+  test("the audit page lists what happened to exports", async ({ page }) => {
     await signIn(page, "carol");
 
     await page.getByRole("button", { name: "Audit" }).click();
@@ -176,7 +176,11 @@ test.describe("LogGate", () => {
     await expect(audit.locator("thead")).toContainText("Who");
     await expect(page).toHaveURL(/#audit$/);
 
-    await audit.getByLabel("Filter downloads").fill("no-such-person");
+    // Making the files is on the trail, not only taking them.
+    await audit.getByRole("button", { name: "Exports", exact: true }).click();
+    await expect(audit.locator('[data-testid="audit-row"]', { hasText: "Export files made" }).first()).toBeVisible();
+
+    await audit.getByLabel("Filter events").fill("no-such-person");
     await expect(audit.locator('[data-testid="audit-row"]')).toHaveCount(0);
   });
 

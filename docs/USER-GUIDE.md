@@ -232,13 +232,24 @@ did. It is counts only: nobody's exports or namespaces are named. The link
 Operators have the same picture, and more, in Grafana: see
 [the metrics section of the README](../README.md#metrics-and-dashboards).
 
-The **Audit** tab (`#audit`) lists every time an export's data was handed to
-someone, newest first: who, when, from which address, which export with its
-clusters and namespaces, and how.
+The **Audit** tab (`#audit`) is the trail of who asked for which logs, whether
+the export's files were made, and who took them, newest first: who, when,
+from which address, which export with its clusters and namespaces, and what
+happened. Show **All**, or only **Exports**, **Downloads** or **Denied**:
 
-<img alt="The audit page: totals by kind of download, a filter, and a table of downloads with who, how, what, size and address" src="images/14-audit.png" width="720">
+- **Asked for an export**, with the size it was estimated at, and **Export
+  files made**, with the number of files and their size, once every part is
+  written. The files are made by LogGate after the request, so that row has
+  no address; its *From* reads *LogGate*.
+- **Export failed**, **Export refused** and **Export cancelled**, with the
+  reason: over the byte cap, a source that kept failing, or a quota.
+- **Access denied**: someone asked for namespaces or clusters they may not
+  export, and which ones.
+- The downloads, below.
 
-*How* is recorded as precisely as LogGate can know it:
+<img alt="The audit page: totals, a switch between all events, exports, downloads and denials, a filter, and a table with who, what happened, which logs, size and address" src="images/14-audit.png" width="720">
+
+A download is recorded as precisely as LogGate can know it:
 
 - **Downloaded .zip.** The archive streamed through LogGate itself. Recorded
   as the download starts, because one abandoned halfway still handed over

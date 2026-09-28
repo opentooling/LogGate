@@ -102,6 +102,7 @@ public class ExportService {
           user.subject(),
           AuditAction.EXPORT_REFUSED,
           Map.of(
+              "name", user.name(),
               "namespaces", request.namespaces(),
               "clusters", request.clusters(),
               "estimatedBytes", estimate.estimatedBytes(),
@@ -130,8 +131,9 @@ public class ExportService {
     audit.record(
         user.subject(),
         AuditAction.EXPORT_SUBMITTED,
+        id,
         Map.of(
-            "jobId", id.toString(),
+            "name", user.name(),
             "namespaces", request.namespaces(),
             "clusters", request.clusters(),
             "selector", estimate.selector(),
@@ -158,8 +160,7 @@ public class ExportService {
   public boolean cancel(AuthenticatedUser user, UUID id, String sourceIp) {
     boolean cancelled = jobs.requestCancel(id, user.subject());
     if (cancelled) {
-      audit.record(
-          user.subject(), AuditAction.EXPORT_CANCELLED, Map.of("jobId", id.toString()), sourceIp);
+      audit.record(user.subject(), AuditAction.EXPORT_CANCELLED, id, Map.of("name", user.name()), sourceIp);
     }
     return cancelled;
   }

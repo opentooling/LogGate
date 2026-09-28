@@ -33,24 +33,42 @@ export type Me = {
 
 export type DownloadAction = "DOWNLOAD_LINKS_ISSUED" | "DOWNLOAD_SCRIPT_ISSUED" | "ARCHIVE_DOWNLOADED";
 
-/** One hand-over of an export's data, as the audit trail recorded it. */
-export type DownloadEvent = {
+export type ExportAction =
+  | "EXPORT_SUBMITTED"
+  | "EXPORT_REFUSED"
+  | "EXPORT_CANCELLED"
+  | "EXPORT_COMPLETED"
+  | "EXPORT_FAILED";
+
+export type AuditAction = DownloadAction | ExportAction | "NAMESPACE_ACCESS_DENIED";
+
+/** Which part of the audit trail to read. */
+export type AuditKind = "all" | "exports" | "downloads" | "denials";
+
+/** One thing on the audit trail. */
+export type AuditEvent = {
   id: number;
   at: string;
   subject: string;
   name: string;
-  action: DownloadAction;
+  action: AuditAction;
   jobId: string | null;
   namespaces: string[];
   clusters: string[];
   files: number | null;
+  /** What was written, uncompressed. */
   bytes: number | null;
+  /** What was expected, when an export was asked for. */
+  estimatedBytes: number | null;
+  /** Why, for a refusal, a failure or a denial. */
+  note: string | null;
+  /** Where the request came from; null for what LogGate did on its own. */
   sourceIp: string | null;
 };
 
-export type DownloadAudit = {
-  page: { events: DownloadEvent[]; next: number | null };
-  totals: Partial<Record<DownloadAction, number>>;
+export type AuditPage = {
+  page: { events: AuditEvent[]; next: number | null };
+  totals: Partial<Record<AuditAction, number>>;
 };
 
 export type Pod = { namespace: string; name: string };
@@ -283,9 +301,9 @@ export const api = {
       method: "POST",
       headers: { Accept: "application/json" },
     }),
-  downloadAudit: (before: number | null, limit = 50) =>
-    call<DownloadAudit>(
-      `/api/audit/downloads?limit=${limit}` + (before === null ? "" : `&before=${before}`),
+  audit: (kind: AuditKind, before: number | null, limit = 50) =>
+    call<AuditPage>(
+      `/api/audit/events?kind=${kind}&limit=${limit}` + (before === null ? "" : `&before=${before}`),
     ),
   activity: (period: ActivityPeriod) =>
     call<ActivityReport>(`/api/activity?period=${encodeURIComponent(period)}`),

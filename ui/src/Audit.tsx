@@ -1,12 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, ApiError, type DownloadAction, type DownloadEvent } from "./api";
+import { api, ApiError, type AuditAction, type AuditEvent, type AuditKind } from "./api";
 import { formatBytes, formatCount } from "./format";
 
-/** What each way of taking an export means, in the words of the table. */
-export const HOW: Record<DownloadAction, { label: string; detail: string }> = {
+/** What each action means, in the words of the table. */
+export const HOW: Record<AuditAction, { label: string; detail: string; tone?: "good" | "bad" | "strong" }> = {
+  EXPORT_SUBMITTED: {
+    label: "Asked for an export",
+    detail: "An export was accepted and queued. Its files are written afterwards.",
+  },
+  EXPORT_COMPLETED: {
+    label: "Export files made",
+    detail: "Every part was written and the export became ready to download.",
+    tone: "good",
+  },
+  EXPORT_FAILED: {
+    label: "Export failed",
+    detail: "The export stopped without its files: over its byte cap, or a source that kept failing.",
+    tone: "bad",
+  },
+  EXPORT_REFUSED: {
+    label: "Export refused",
+    detail: "Refused by a quota before anything ran.",
+    tone: "bad",
+  },
+  EXPORT_CANCELLED: {
+    label: "Export cancelled",
+    detail: "Asked to stop. Anything written so far is deleted.",
+  },
+  NAMESPACE_ACCESS_DENIED: {
+    label: "Access denied",
+    detail: "Asked for logs from namespaces or clusters they may not export.",
+    tone: "bad",
+  },
   ARCHIVE_DOWNLOADED: {
     label: "Downloaded .zip",
     detail: "Streamed through LogGate as one archive.",
+    tone: "strong",
   },
   DOWNLOAD_SCRIPT_ISSUED: {
     label: "Took the script",
@@ -18,9 +47,19 @@ export const HOW: Record<DownloadAction, { label: string; detail: string }> = {
   },
 };
 
+const KINDS: { value: AuditKind; label: string; empty: string }[] = [
+  { value: "all", label: "All", empty: "Nothing has been recorded yet." },
+  { value: "exports", label: "Exports", empty: "No export has been asked for yet." },
+  { value: "downloads", label: "Downloads", empty: "Nothing has been downloaded yet." },
+  { value: "denials", label: "Denied", empty: "Nobody has been denied access." },
+];
+
+const sum = (totals: Partial<Record<AuditAction, number>>, actions: AuditAction[]) =>
+  actions.reduce((n, action) => n + (totals[action] ?? 0), 0);
+
 /**
- * Every download, for administrators: who took which export's data, how,
- * when and from where.
+ * The audit trail, for administrators: who asked for which logs, whether the
+ * export's files were made, who took them and how, when and from where.
  *
  * <p>Newest first, a page at a time. Links and the script are recorded when
  * they are handed out, because the files themselves are fetched from object
@@ -28,9 +67,10 @@ export const HOW: Record<DownloadAction, { label: string; detail: string }> = {
  * than calling both a download.
  */
 export function Audit({ onError }: { onError: (message: string) => void }) {
-  const [events, setEvents] = useState<DownloadEvent[]>([]);
+  const [kind, setKind] = useState<AuditKind>("all");
+  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [next, setNext] = useState<number | null>(null);
-  const [totals, setTotals] = useState<Partial<Record<DownloadAction, number>>>({});
+  const [totals, setTotals] = useState<Partial<Record<AuditAction, number>>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
 
@@ -38,7 +78,7 @@ export function Audit({ onError }: { onError: (message: string) => void }) {
     (before: number | null) => {
       setLoading(true);
       api
-        .downloadAudit(before)
+        .audit(kind, before)
         .then((audit) => {
           setEvents((shown) => (before === null ? audit.page.events : [...shown, ...audit.page.events]));
           setNext(audit.page.next);
@@ -47,7 +87,7 @@ export function Audit({ onError }: { onError: (message: string) => void }) {
         .catch((e) => onError(e instanceof ApiError ? e.message : String(e)))
         .finally(() => setLoading(false));
     },
-    [onError],
+    [kind, onError],
   );
 
   useEffect(() => load(null), [load]);
@@ -56,21 +96,26 @@ export function Audit({ onError }: { onError: (message: string) => void }) {
     const needle = filter.trim().toLowerCase();
     if (!needle) return events;
     return events.filter((event) =>
-      [event.name, event.subject, event.jobId ?? "", event.sourceIp ?? "", HOW[event.action].label,
-        ...event.namespaces, ...event.clusters]
+      [event.name, event.subject, event.jobId ?? "", event.sourceIp ?? "", event.note ?? "",
+        HOW[event.action].label, ...event.namespaces, ...event.clusters]
         .some((text) => text.toLowerCase().includes(needle)),
     );
   }, [events, filter]);
 
-  const total = Object.values(totals).reduce((sum, n) => sum + (n ?? 0), 0);
+  const tiles: { label: string; value: number }[] = [
+    { label: "Exports asked for", value: sum(totals, ["EXPORT_SUBMITTED"]) },
+    { label: "Export files made", value: sum(totals, ["EXPORT_COMPLETED"]) },
+    { label: "Downloads", value: sum(totals, ["ARCHIVE_DOWNLOADED", "DOWNLOAD_SCRIPT_ISSUED", "DOWNLOAD_LINKS_ISSUED"]) },
+    { label: "Refused or denied", value: sum(totals, ["EXPORT_REFUSED", "NAMESPACE_ACCESS_DENIED"]) },
+  ];
 
   return (
     <section className="card audit" data-testid="audit">
       <div className="activity-head">
         <div>
-          <h2>Downloads</h2>
+          <h2>Audit trail</h2>
           <p className="quiet activity-scope">
-            Every time an export&apos;s data was handed to someone, newest first.
+            Who asked for which logs, whether the files were made, and who took them. Newest first.
           </p>
         </div>
         <button type="button" onClick={() => load(null)} disabled={loading}>
@@ -79,28 +124,33 @@ export function Audit({ onError }: { onError: (message: string) => void }) {
       </div>
 
       <div className="tiles audit-tiles">
-        <div className="tile" data-testid="tile">
-          <span className="tile-label">All downloads</span>
-          <strong className="tile-value">{formatCount(total)}</strong>
-        </div>
-        {(Object.keys(HOW) as DownloadAction[]).map((action) => (
-          <div key={action} className="tile" data-testid="tile">
-            <span className="tile-label">{HOW[action].label}</span>
-            <strong className="tile-value">{formatCount(totals[action] ?? 0)}</strong>
+        {tiles.map((tile) => (
+          <div key={tile.label} className="tile" data-testid="tile">
+            <span className="tile-label">{tile.label}</span>
+            <strong className="tile-value">{formatCount(tile.value)}</strong>
           </div>
         ))}
       </div>
 
-      <input
-        className="picker-filter audit-filter"
-        aria-label="Filter downloads"
-        placeholder="Filter by person, namespace, cluster, export or address"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
+      <div className="audit-controls">
+        <div className="segmented" role="group" aria-label="Show">
+          {KINDS.map((k) => (
+            <button key={k.value} type="button" aria-pressed={kind === k.value} onClick={() => setKind(k.value)}>
+              {k.label}
+            </button>
+          ))}
+        </div>
+        <input
+          className="picker-filter audit-filter"
+          aria-label="Filter events"
+          placeholder="Filter by person, namespace, cluster, export, address or reason"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
 
       {events.length === 0 && !loading ? (
-        <p className="quiet chart-empty">Nothing has been downloaded yet.</p>
+        <p className="quiet chart-empty">{KINDS.find((k) => k.value === kind)!.empty}</p>
       ) : (
         <div className="table-wrap">
           <table className="audit-table" data-testid="audit-table">
@@ -108,48 +158,60 @@ export function Audit({ onError }: { onError: (message: string) => void }) {
               <tr>
                 <th scope="col">When</th>
                 <th scope="col">Who</th>
-                <th scope="col">How</th>
-                <th scope="col">What</th>
+                <th scope="col">What happened</th>
+                <th scope="col">Logs</th>
                 <th scope="col" className="num">Size</th>
                 <th scope="col">From</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map((event) => (
-                <tr key={event.id} data-testid="audit-row">
-                  <td>
-                    <time dateTime={event.at} title={new Date(event.at).toISOString()}>
-                      {new Date(event.at).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </time>
-                  </td>
-                  <td title={event.subject}>{event.name}</td>
-                  <td>
-                    <span className={`how how-${event.action.toLowerCase()}`} title={HOW[event.action].detail}>
-                      {HOW[event.action].label}
-                    </span>
-                    {event.files !== null && <small>{formatCount(event.files)} files</small>}
-                  </td>
-                  <td>
-                    {event.clusters.map((cluster) => (
-                      <span key={cluster} className="cluster-chip">
-                        {cluster}
+              {shown.map((event) => {
+                const how = HOW[event.action];
+                return (
+                  <tr key={event.id} data-testid="audit-row">
+                    <td>
+                      <time dateTime={event.at} title={new Date(event.at).toISOString()}>
+                        {new Date(event.at).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </td>
+                    <td title={event.subject}>{event.name}</td>
+                    <td>
+                      <span className={how.tone ? `how how-${how.tone}` : "how"} title={how.detail}>
+                        {how.label}
                       </span>
-                    ))}
-                    <span>{event.namespaces.length ? event.namespaces.join(", ") : "every namespace"}</span>
-                    {event.jobId && <small title={event.jobId}>export {event.jobId.slice(0, 8)}</small>}
-                  </td>
-                  <td className="num">{event.bytes === null ? "–" : formatBytes(event.bytes)}</td>
-                  <td className="quiet">{event.sourceIp ?? "–"}</td>
-                </tr>
-              ))}
+                      {event.files !== null && <small>{formatCount(event.files)} files</small>}
+                      {event.note && <small className="audit-note">{event.note}</small>}
+                    </td>
+                    <td>
+                      {event.clusters.map((cluster) => (
+                        <span key={cluster} className="cluster-chip">
+                          {cluster}
+                        </span>
+                      ))}
+                      <span>{event.namespaces.length ? event.namespaces.join(", ") : "every namespace"}</span>
+                      {event.jobId && <small title={event.jobId}>export {event.jobId.slice(0, 8)}</small>}
+                    </td>
+                    <td className="num">
+                      {event.bytes !== null ? (
+                        formatBytes(event.bytes)
+                      ) : event.estimatedBytes !== null ? (
+                        <span title="Estimated when it was asked for">~{formatBytes(event.estimatedBytes)}</span>
+                      ) : (
+                        "–"
+                      )}
+                    </td>
+                    <td className="quiet">{event.sourceIp ?? (event.jobId ? "LogGate" : "–")}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          {shown.length === 0 && <p className="quiet">No download matches “{filter}”.</p>}
+          {shown.length === 0 && <p className="quiet">Nothing matches “{filter}”.</p>}
         </div>
       )}
 

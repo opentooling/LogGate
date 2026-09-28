@@ -39,12 +39,21 @@ class ExportWorkerTest {
   @Autowired private ExportJobRepository jobs;
   @Autowired private JdbcClient db;
   @Autowired private ObjectMapper json;
+  @Autowired private ExportOutcomes outcomes;
 
   private final InMemoryObjectStore store = new InMemoryObjectStore();
 
   @BeforeEach
   void clear() {
     db.sql("DELETE FROM export_job").update();
+    db.sql("DELETE FROM audit_event").update();
+  }
+
+  private List<java.util.Map<String, Object>> audited(UUID id) {
+    return db.sql("SELECT action, actor, source_ip, detail::text AS detail FROM audit_event WHERE job_id = ?")
+        .param(id)
+        .query()
+        .listOfRows();
   }
 
   private UUID createJob(long byteLimit) {
@@ -80,7 +89,8 @@ class ExportWorkerTest {
         Duration.ofMinutes(2),
         maxAttempts,
         checkEvery,
-        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+        outcomes);
   }
 
   private static String unzip(byte[] gzipped) {
@@ -141,6 +151,13 @@ class ExportWorkerTest {
     assertThat(job.state()).isEqualTo(JobState.FAILED);
     assertThat(job.failureCode()).isEqualTo("BYTE_LIMIT_EXCEEDED");
     assertThat(job.failureDetail()).contains("over its limit");
+    // On the audit trail against the person who asked, with why.
+    assertThat(audited(id)).singleElement().satisfies(row -> {
+      assertThat(row.get("action")).isEqualTo("EXPORT_FAILED");
+      assertThat(row.get("actor")).isEqualTo("alice-subject");
+      assertThat(row.get("source_ip")).isNull();
+      assertThat((String) row.get("detail")).contains("BYTE_LIMIT_EXCEEDED");
+    });
   }
 
   @Test
@@ -253,6 +270,8 @@ class ExportWorkerTest {
 
     worker(loki, store, 2).runOnce();
     assertThat(jobs.find(id).orElseThrow().state()).isEqualTo(JobState.PLANNED);
+    // A retry is not an outcome.
+    assertThat(audited(id)).isEmpty();
 
     loki.failNextQuery(new LokiException("loki is still down"));
     worker(loki, store, 2).runOnce();
@@ -260,6 +279,7 @@ class ExportWorkerTest {
     ExportJob job = jobs.find(id).orElseThrow();
     assertThat(job.state()).isEqualTo(JobState.FAILED);
     assertThat(job.failureCode()).isEqualTo("UPSTREAM_FAILED");
+    assertThat(audited(id)).extracting(row -> row.get("action")).containsExactly("EXPORT_FAILED");
   }
 
   @Test

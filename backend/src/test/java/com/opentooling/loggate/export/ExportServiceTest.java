@@ -121,7 +121,12 @@ class ExportServiceTest {
     service().submit(alice(), request(Duration.ofHours(1)), "10.0.0.1");
 
     verify(audit)
-        .record(eq("alice-subject"), eq(AuditAction.EXPORT_SUBMITTED), any(), eq("10.0.0.1"));
+        .record(
+            eq("alice-subject"),
+            eq(AuditAction.EXPORT_SUBMITTED),
+            any(UUID.class),
+            any(),
+            eq("10.0.0.1"));
   }
 
   @Test
@@ -190,8 +195,9 @@ class ExportServiceTest {
         .isFalse();
     assertThat(service().cancel(alice(), id, "10.0.0.1")).isTrue();
 
-    verify(audit).record(eq("alice-subject"), eq(AuditAction.EXPORT_CANCELLED), any(), anyString());
-    verify(audit, never()).record(eq("mallory"), any(), any(), anyString());
+    verify(audit)
+        .record(eq("alice-subject"), eq(AuditAction.EXPORT_CANCELLED), eq(id), any(), anyString());
+    verify(audit, never()).record(eq("mallory"), any(), any(), any(), anyString());
     assertThat(jobs.isCancelRequested(id)).isTrue();
   }
 

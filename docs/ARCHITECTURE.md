@@ -471,7 +471,17 @@ reports aggregates only, to anyone who may export.
 ## Audit
 
 `audit_event` is a first-class table, not application logs. Every submission,
-state transition and download is recorded with actor, selector and byte counts.
+refusal, cancellation, denied access, outcome and download is recorded with
+actor, selector and byte counts.
+
+**Outcomes** are recorded by the process that reaches them, not a request:
+`EXPORT_COMPLETED` when the finalizer publishes an export (with its file count
+and size), `EXPORT_FAILED` when a worker gives up on it (with the failure code).
+They are recorded against the person who asked, with no source address, and
+only when `finish` actually moved the job, so two windows failing at once
+record one failure. The audit page reads every action, filtered by kind; an
+event's missing name, namespaces or job id (older rows kept the id only in
+their detail) is filled from its export where that still exists.
 
 This is deliberate: these exports contain production log data, which should be
 assumed to contain PII.

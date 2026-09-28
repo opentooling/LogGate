@@ -33,6 +33,7 @@ class JobFinalizerTest {
   private final InMemoryObjectStore store = new InMemoryObjectStore();
 
   @Autowired private tools.jackson.databind.ObjectMapper json;
+  @Autowired private ExportOutcomes outcomes;
 
   private JobFinalizer finalizer() {
     return finalizer(store);
@@ -46,12 +47,21 @@ class JobFinalizerTest {
         json,
         Duration.ofHours(48),
         Clock.fixed(NOW, ZoneOffset.UTC),
-        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+        new com.opentooling.loggate.observability.ExportMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+        outcomes);
   }
 
   @BeforeEach
   void clear() {
     db.sql("DELETE FROM export_job").update();
+    db.sql("DELETE FROM audit_event").update();
+  }
+
+  private List<java.util.Map<String, Object>> audited(UUID id) {
+    return db.sql("SELECT action, actor, source_ip, detail::text AS detail FROM audit_event WHERE job_id = ?")
+        .param(id)
+        .query()
+        .listOfRows();
   }
 
   private UUID createJob() {
@@ -88,6 +98,12 @@ class JobFinalizerTest {
     // The artifact's life starts when it becomes downloadable, not when the
     // export was requested.
     assertThat(expiry).isEqualTo(NOW.plus(Duration.ofHours(48)));
+    // The files existing is on the audit trail, once, however often this runs.
+    finalizer().publishFinished();
+    assertThat(audited(id)).singleElement().satisfies(row -> {
+      assertThat(row.get("action")).isEqualTo("EXPORT_COMPLETED");
+      assertThat(row.get("actor")).isEqualTo("alice-subject");
+    });
   }
 
   @Test

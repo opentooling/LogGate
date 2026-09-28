@@ -1311,8 +1311,22 @@ details summary {
   margin-top: 1rem;
 }
 
-.audit-filter {
+.audit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
   margin: 1rem 0 0.6rem;
+}
+
+.audit-filter {
+  flex: 1 1 18rem;
+  margin: 0;
+}
+
+.audit-table td small.audit-note {
+  color: var(--quiet);
+  max-width: 28rem;
 }
 
 .table-wrap {
@@ -1368,9 +1382,20 @@ details summary {
 
 /* The one that passed every byte through LogGate stands out: it is the only
    row that records data actually delivered rather than links handed out. */
-.how-archive_downloaded {
+.how-strong {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Files made, and what was refused or never made, read at a glance. */
+.how-good {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.how-bad {
+  border-color: var(--bad);
+  color: var(--bad);
 }
 
 .cluster-chip {

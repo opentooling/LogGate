@@ -233,9 +233,13 @@ public class ExportJobRepository {
         > 0;
   }
 
-  /** Moves a job to a terminal state, if it is not already in one. */
-  public void finish(UUID jobId, JobState state, FailureCode code, String detail) {
-    db.sql(
+  /**
+   * Moves a job to a terminal state, if it is not already in one.
+   *
+   * @return whether it moved, so what follows from ending a job happens once
+   */
+  public boolean finish(UUID jobId, JobState state, FailureCode code, String detail) {
+    return db.sql(
             """
             UPDATE export_job
                SET state = ?, failure_code = ?, failure_detail = ?,
@@ -246,7 +250,8 @@ public class ExportJobRepository {
         .param(code == null ? null : code.name())
         .param(detail)
         .param(jobId)
-        .update();
+        .update()
+        > 0;
   }
 
   /** Jobs that have finished every window, ready to be finalized. */

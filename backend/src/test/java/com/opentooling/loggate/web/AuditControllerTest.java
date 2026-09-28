@@ -47,14 +47,14 @@ class AuditControllerTest {
   @Test
   void listsDownloadsForAnAdministratorAPageAtATime() throws Exception {
     UUID job = UUID.randomUUID();
-    when(log.downloads(2, 90L))
+    when(log.events(AuditLog.Kind.DOWNLOADS, 2, 90L))
         .thenReturn(
             new AuditLog.Page(
                 List.of(
-                    new AuditLog.Download(
+                    new AuditLog.Event(
                         88, Instant.parse("2026-09-20T10:00:00Z"), "alice-subject", "alice",
                         AuditAction.ARCHIVE_DOWNLOADED, job, List.of("platform-dev"),
-                        List.of("k3d-loggate"), null, 1024L, "10.0.0.1")),
+                        List.of("k3d-loggate"), null, 1024L, null, null, "10.0.0.1")),
                 87L));
     when(log.totals()).thenReturn(Map.of(AuditAction.ARCHIVE_DOWNLOADED, 3L));
 
@@ -70,10 +70,24 @@ class AuditControllerTest {
 
   @Test
   void startsFromTheNewestFiftyByDefault() throws Exception {
-    when(log.downloads(50, null)).thenReturn(new AuditLog.Page(List.of(), null));
+    when(log.events(AuditLog.Kind.DOWNLOADS, 50, null)).thenReturn(new AuditLog.Page(List.of(), null));
     mvc.perform(get("/api/audit/downloads").with(ActivityControllerTest.admin()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.page.next").doesNotExist());
+  }
+
+  @Test
+  void listsEveryKindOfEventOrOneKind() throws Exception {
+    when(log.events(AuditLog.Kind.ALL, 50, null)).thenReturn(new AuditLog.Page(List.of(), null));
+    when(log.events(AuditLog.Kind.EXPORTS, 50, null)).thenReturn(new AuditLog.Page(List.of(), null));
+    mvc.perform(get("/api/audit/events").with(ActivityControllerTest.admin()))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/audit/events?kind=exports").with(ActivityControllerTest.admin()))
+        .andExpect(status().isOk());
+    verify(log).events(AuditLog.Kind.ALL, 50, null);
+    verify(log).events(AuditLog.Kind.EXPORTS, 50, null);
+    mvc.perform(get("/api/audit/events?kind=everything").with(ActivityControllerTest.admin()))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -82,13 +96,13 @@ class AuditControllerTest {
       mvc.perform(get("/api/audit/downloads?limit=" + limit).with(ActivityControllerTest.admin()))
           .andExpect(status().isBadRequest());
     }
-    verify(log, never()).downloads(anyInt(), any());
+    verify(log, never()).events(any(), anyInt(), any());
   }
 
   @Test
   void isForAdministratorsOnly() throws Exception {
     mvc.perform(get("/api/audit/downloads").with(oidcLogin())).andExpect(status().isForbidden());
-    verify(log, never()).downloads(anyInt(), any());
+    verify(log, never()).events(any(), anyInt(), any());
   }
 
   @Test
