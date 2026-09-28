@@ -502,6 +502,7 @@ jobs:
           helm show chart "$CHART_REGISTRY/loggate" --version "$version"
           image="$(helm template loggate "$CHART_REGISTRY/loggate" --version "$version" \
             --set oidc.issuerUri=https://sso.example.com/realms/x \
+            --set oidc.existingSecret=loggate-oidc \
             | sed -n 's/^ *image: *//p' | sort -u | grep loggate)"
           echo "$image"
           test "$image" = "$IMAGE_NAME:${{ needs.publish-image.outputs.tag }}"
