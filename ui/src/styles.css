@@ -253,6 +253,11 @@ button.small {
   min-height: 100vh;
 }
 
+/* Folded to its icons, for more room to read a wide table. */
+.shell-collapsed {
+  grid-template-columns: 60px minmax(0, 1fr);
+}
+
 .rail {
   position: sticky;
   top: 0;
@@ -263,6 +268,45 @@ button.small {
   padding: 18px 12px;
   background: var(--card);
   border-right: 1px solid var(--line);
+  /* Nothing in the rail may spill over the page beside it, where it would
+     sit on top of the controls there and swallow their clicks. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rail-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--quiet);
+}
+
+.rail-toggle:hover {
+  color: var(--text);
+  background: var(--raised);
+}
+
+.rail .icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .brand {
@@ -296,7 +340,9 @@ button.small {
 
 .rail-nav button,
 .rail-nav a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 7px 10px;
   border: none;
   border-radius: 7px;
@@ -323,11 +369,15 @@ button.small {
   display: grid;
   gap: 4px;
   justify-items: start;
+  min-width: 0;
   padding: 12px 6px 0;
   border-top: 1px solid var(--line);
 }
 
 .rail-account .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   color: var(--quiet);
   font-weight: 400;
 }
@@ -336,8 +386,57 @@ button.small {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
   margin-bottom: 4px;
   font-weight: 600;
+}
+
+.who .avatar {
+  flex: none;
+}
+
+/* A long address, cut short rather than pushed out of the rail. */
+.who .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Folded: the icons stay, the words go but still name each control.
+   Phones have a bar across the top instead, which has nothing to fold. */
+@media (min-width: 861px) {
+  .shell-collapsed .rail {
+    padding: 18px 10px;
+  }
+  .shell-collapsed .rail .label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .shell-collapsed .rail-head {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .shell-collapsed .brand {
+    padding: 0;
+  }
+  .shell-collapsed .rail-nav button,
+  .shell-collapsed .rail-nav a {
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .shell-collapsed .rail-account {
+    justify-items: center;
+    padding: 12px 0 0;
+  }
+  .shell-collapsed .who {
+    margin: 0 0 4px;
+  }
 }
 
 .avatar {
@@ -934,8 +1033,13 @@ details summary {
 /* --- themes and phones ------------------------------------------------- */
 
 @media (max-width: 860px) {
-  .shell {
+  .shell,
+  .shell-collapsed {
     grid-template-columns: 1fr;
+  }
+  /* A bar across the top has nothing to fold. */
+  .rail-toggle {
+    display: none;
   }
   /* The rail becomes a bar across the top: the brand and the account on one
      line, the views on the next, scrolling sideways if they must. */
