@@ -28,8 +28,7 @@ ROLE="${OPEN_ROLE:-export-logs}"
 
 env_of() { kubectl --context "$CONTEXT" get deploy loggate -n "$NAMESPACE" \
   -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"$1\")].value}" 2>/dev/null; }
-set_env() { kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" "$@" >/dev/null 2>&1
-  kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1; }
+set_env() { set_app_env "$@"; }
 
 # Loki's own answers, for comparing LogGate's against.
 enc() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"; }

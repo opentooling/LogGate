@@ -41,6 +41,26 @@ check_at_least() { # check_at_least <description> <minimum> <actual>
   fi
 }
 
+# Changes LogGate's environment and waits until only pods carrying the change
+# answer. `rollout status` is satisfied as soon as the old pods are told to
+# stop, but a stopping pod can still answer through the ingress for a few
+# seconds, and a check that lands on one sees the old setting. So this also
+# waits for the old pods to be gone. Uses CONTEXT and NAMESPACE.
+set_app_env() { # set_app_env NAME=value...
+  kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" "$@" >/dev/null \
+    || { echo "could not set $*" >&2; return 1; }
+  kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null \
+    || { echo "LogGate did not roll out with $*" >&2; return 1; }
+  local current deadline=$((SECONDS + 120))
+  current="$(kubectl --context "$CONTEXT" get rs -n "$NAMESPACE" -l app.kubernetes.io/component=app \
+    --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.labels.pod-template-hash}')"
+  while [[ -n "$(kubectl --context "$CONTEXT" get pods -n "$NAMESPACE" \
+      -l "app.kubernetes.io/component=app,pod-template-hash!=$current" -o name 2>/dev/null)" ]]; do
+    (( SECONDS < deadline )) || { echo "old LogGate pods are still running" >&2; return 1; }
+    sleep 2
+  done
+}
+
 # Signs a user in, leaving an authenticated session in the cookie jar.
 login() {
   local user="$1" jar="$2"

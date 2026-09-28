@@ -81,17 +81,13 @@ ORIGINAL_LIFETIME="$(kubectl --context "$CONTEXT" get deploy loggate -n "$NAMESP
   -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="S3_PRESIGNED_URL_LIFETIME")].value}' 2>/dev/null)"
 restore_lifetime() {
   if [[ -n "${ORIGINAL_LIFETIME:-}" ]]; then
-    kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" \
-      "S3_PRESIGNED_URL_LIFETIME=$ORIGINAL_LIFETIME" >/dev/null 2>&1
-    kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1
+    set_app_env "S3_PRESIGNED_URL_LIFETIME=$ORIGINAL_LIFETIME"
   fi
 }
 trap restore_lifetime EXIT
 
 LIFETIME=15
-kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" \
-  "S3_PRESIGNED_URL_LIFETIME=${LIFETIME}s" >/dev/null 2>&1
-kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1
+set_app_env "S3_PRESIGNED_URL_LIFETIME=${LIFETIME}s"
 login alice "$JAR" >/dev/null
 
 SHORT="$(body "$(api "$JAR" GET "/api/exports/$JOB/downloads")" | jq_get 'd[0]["url"]')"

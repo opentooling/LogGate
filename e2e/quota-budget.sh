@@ -17,9 +17,7 @@ ORIGINAL="$(kubectl --context "$CONTEXT" get deploy loggate -n "$NAMESPACE" \
 
 restore() {
   if [[ -n "${ORIGINAL:-}" ]]; then
-    kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" \
-      "QUOTA_DAILY_BYTES_PER_TEAM=$ORIGINAL" >/dev/null 2>&1
-    kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1
+    set_app_env "QUOTA_DAILY_BYTES_PER_TEAM=$ORIGINAL"
   fi
 }
 trap restore EXIT
@@ -32,9 +30,7 @@ echo "LogGate per-team daily budget against $APP"
 echo
 
 echo "with a one-megabyte budget"
-kubectl --context "$CONTEXT" set env deploy/loggate -n "$NAMESPACE" \
-  QUOTA_DAILY_BYTES_PER_TEAM=1048576 >/dev/null 2>&1
-kubectl --context "$CONTEXT" rollout status deploy/loggate -n "$NAMESPACE" --timeout=300s >/dev/null 2>&1
+set_app_env QUOTA_DAILY_BYTES_PER_TEAM=1048576
 
 JAR="$(mktemp)"
 login alice "$JAR" || { summary; exit 1; }
