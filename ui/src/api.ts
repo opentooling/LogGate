@@ -226,6 +226,13 @@ function csrfToken(): string | undefined {
     ?.slice("XSRF-TOKEN=".length);
 }
 
+/**
+ * Set once signing out has begun. The session is gone from then on, so a poll
+ * still in flight comes back 401, and starting the login from it would send
+ * the person back to the sign-in form instead of where signing out leads.
+ */
+let signingOut = false;
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = csrfToken();
   const response = await fetch(path, {
@@ -241,8 +248,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (response.status === 401) {
     // The session has gone; start the login again rather than showing an error
-    // the user cannot act on.
-    window.location.href = "/oauth2/authorization/keycloak";
+    // the user cannot act on. Unless it went because they signed out.
+    if (!signingOut) window.location.href = "/oauth2/authorization/keycloak";
     throw new ApiError(401, "signing in");
   }
   if (!response.ok) {
@@ -296,11 +303,13 @@ export const api = {
    * go next, the provider's end-session page, because a fetch cannot follow a
    * redirect to another origin itself.
    */
-  signOut: () =>
-    call<{ redirect: string }>("/logout", {
+  signOut: () => {
+    signingOut = true;
+    return call<{ redirect: string }>("/logout", {
       method: "POST",
       headers: { Accept: "application/json" },
-    }),
+    });
+  },
   audit: (kind: AuditKind, before: number | null, limit = 50) =>
     call<AuditPage>(
       `/api/audit/events?kind=${kind}&limit=${limit}` + (before === null ? "" : `&before=${before}`),
