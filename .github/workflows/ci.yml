@@ -147,6 +147,8 @@ jobs:
           env = {e["name"]: e.get("value") for e in app["spec"]["template"]["spec"]["containers"][0]["env"]}
           assert env["ACCESS_MODE"] == "OPEN" and env["ACCESS_OPEN_ROLE"] == "export-logs", env
           assert env["S3_CHECKSUMS"] == "WHEN_REQUIRED", env
+          # Every secret comes from the operator's own Secrets, so the chart makes none.
+          assert "Secret" not in kinds, [d["metadata"]["name"] for d in docs if d["kind"] == "Secret"]
           policy = next(d for d in docs if d["kind"] == "NetworkPolicy")
           assert any(5353 in [p["port"] for p in e.get("ports", [])] for e in policy["spec"]["egress"]), policy
           print("The OpenShift open-access example renders as documented.")

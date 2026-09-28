@@ -14,3 +14,6 @@ chart.
 {{- if and .Values.route.enabled .Values.ingress.enabled }}
 {{- fail "route.enabled and ingress.enabled are both set; choose one, or OpenShift will serve the application twice." }}
 {{- end }}
+{{- if and (not .Values.keycloak.enabled) (not .Values.oidc.existingSecret) (not .Values.oidc.clientSecret) }}
+{{- fail "keycloak.enabled=false needs the client secret registered at your identity provider: oidc.existingSecret (a Secret holding it under oidc.clientSecretKey) or oidc.clientSecret. One the chart generated would match no client there." }}
+{{- end }}

@@ -136,7 +136,8 @@ oidc:
   # explicitly whenever the browser-facing URL differs from the ingress host.
   redirectUri: ""
   clientId: loggate
-  # Leave empty to reuse or generate one, like the database password.
+  # With keycloak.enabled=false, the secret registered at your identity
+  # provider: here, or better, in a Secret named by existingSecret.
   clientSecret: ""
   existingSecret: ""
   clientSecretKey: oidc-client-secret

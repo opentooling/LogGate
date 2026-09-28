@@ -79,35 +79,42 @@ key: database-password
 {{- end -}}
 
 {{/*
-Whether the chart's own Secret has to carry a database password at all.
+What the chart's own Secret has to hold: each value that is not read from a
+Secret of the operator's. Each renders "true" or nothing.
 */}}
 {{- define "loggate.generatesDatabasePassword" -}}
 {{- $db := ternary .Values.postgres .Values.externalDatabase .Values.postgres.enabled -}}
 {{- if not $db.existingSecret -}}true{{- end -}}
 {{- end -}}
 
+{{- define "loggate.holdsOidcClientSecret" -}}
+{{- if not .Values.oidc.existingSecret -}}true{{- end -}}
+{{- end -}}
+
+{{- define "loggate.holdsStorageKeys" -}}
+{{- if and .Values.storage.accessKey (not .Values.storage.existingSecret) -}}true{{- end -}}
+{{- end -}}
+
 {{/*
-OIDC client secret, with the same reuse-or-generate rule as the database
-password so an upgrade never rotates it out from under the realm.
+Whether the chart creates its Secret at all. With every value coming from the
+operator's own Secrets, as with an external identity provider and database,
+it would hold nothing anything reads, so it is not created.
+*/}}
+{{- define "loggate.needsSecret" -}}
+{{- if or (include "loggate.generatesDatabasePassword" .) (include "loggate.holdsOidcClientSecret" .) (include "loggate.holdsStorageKeys" .) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+OIDC client secret: the bundled Keycloak's, or the one registered at an
+external identity provider. validate.yaml refuses an external provider with
+neither this nor oidc.existingSecret, since a generated one would match
+nothing there.
 */}}
 {{- define "loggate.oidcClientSecret" -}}
 {{- if .Values.keycloak.enabled -}}
 {{- .Values.keycloak.clientSecret -}}
-{{- else if .Values.oidc.clientSecret -}}
+{{- else -}}
 {{- .Values.oidc.clientSecret -}}
-{{- else -}}
-{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "loggate.secretName" .) -}}
-{{- $current := "" -}}
-{{- if $existing -}}
-{{- if $existing.data -}}
-{{- $current = (get $existing.data "oidc-client-secret") -}}
-{{- end -}}
-{{- end -}}
-{{- if $current -}}
-{{- $current | b64dec -}}
-{{- else -}}
-{{- randAlphaNum 40 -}}
-{{- end -}}
 {{- end -}}
 {{- end -}}
 
