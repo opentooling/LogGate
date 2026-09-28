@@ -131,3 +131,24 @@ export function usedFraction(used: number, limit: number): number {
   if (limit <= 0) return 0;
   return Math.min(used / limit, 1);
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * A moment as the whole page writes it: 24 Sep 15:37, in the reader's time
+ * zone. One short format everywhere, so a list of exports and the range they
+ * came from read the same. The year is added only when it is not this one.
+ */
+export function formatWhen(when: string | Date, now: Date = new Date()): string {
+  const date = typeof when === "string" ? new Date(when) : when;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  const year = date.getFullYear() === now.getFullYear() ? "" : ` ${date.getFullYear()}`;
+  return `${day}${year} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** A range as its start and its length: 24 Sep 15:37 · 1d. */
+export function formatSpan(from: string, to: string, now: Date = new Date()): string {
+  const seconds = Math.round((new Date(to).getTime() - new Date(from).getTime()) / 1000);
+  return `${formatWhen(from, now)} · ${formatDuration(seconds)}`;
+}
