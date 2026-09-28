@@ -54,6 +54,13 @@ class PublicPagesTest {
   }
 
   @Test
+  void someoneSignedInIsSentFromTheWelcomePageToLogGate() throws Exception {
+    // The guide links back to "/", but a bookmarked /welcome would otherwise
+    // offer to sign in someone who already is.
+    mvc.perform(get("/welcome").with(oidcLogin())).andExpect(redirectedUrl("/"));
+  }
+
+  @Test
   void theirFilesAreNotBehindTheLogin() throws Exception {
     for (String path :
         new String[] {

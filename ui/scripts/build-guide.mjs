@@ -70,10 +70,11 @@ function page({ html, sections }) {
     <script src="/theme-boot.js"></script>
   </head>
   <body>
+    <!-- "/" rather than /welcome: someone signed in, who opened the guide from
+         LogGate, goes back to it; anyone else lands on the welcome page. -->
     <header class="site-head">
-      <a class="brand" href="/welcome"><span class="mark" aria-hidden="true">L</span>LogGate</a>
+      <a class="brand" href="/"><span class="mark" aria-hidden="true">L</span>LogGate</a>
       <nav class="site-nav" aria-label="Site">
-        <a href="/welcome">Home</a>
         <a class="button small primary" href="/">Open LogGate</a>
       </nav>
     </header>

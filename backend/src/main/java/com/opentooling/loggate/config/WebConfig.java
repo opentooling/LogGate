@@ -39,9 +39,15 @@ public class WebConfig {
         access, authorization, pods.enabled(), podPatternAllowed, admins);
   }
 
+  /** The welcome page, or LogGate itself for someone already signed in. */
+  @Bean
+  com.opentooling.loggate.web.WelcomeController welcomeController() {
+    return new com.opentooling.loggate.web.WelcomeController();
+  }
+
   /**
-   * The public pages at short paths. Each is a static file built with the UI;
-   * a forward keeps its address as typed.
+   * The guide at its short paths. It is a static file built with the UI; a
+   * forward keeps its address as typed.
    */
   @Bean
   org.springframework.web.servlet.config.annotation.WebMvcConfigurer publicPages() {
@@ -49,7 +55,6 @@ public class WebConfig {
       @Override
       public void addViewControllers(
           org.springframework.web.servlet.config.annotation.ViewControllerRegistry registry) {
-        registry.addViewController("/welcome").setViewName("forward:/welcome.html");
         registry.addViewController("/guide").setViewName("forward:/guide/index.html");
         registry.addViewController("/guide/").setViewName("forward:/guide/index.html");
       }
