@@ -132,7 +132,12 @@ class AuditLogTest {
         .update();
     audit.record("alice-subject", AuditAction.EXPORT_CANCELLED, Map.of("jobId", job.toString()), null);
 
-    AuditLog.Event cancelled = log.events(AuditLog.Kind.EXPORTS, 10, null).events().getFirst();
+    // A refusal recorded before names were kept names no export at all.
+    audit.record("alice-subject", AuditAction.EXPORT_REFUSED, Map.of("reason", "over"), null);
+    assertThat(log.events(AuditLog.Kind.EXPORTS, 10, null).events().getFirst().name())
+        .isEqualTo("alice");
+
+    AuditLog.Event cancelled = log.events(AuditLog.Kind.EXPORTS, 10, null).events().get(1);
     assertThat(cancelled.jobId()).isEqualTo(job);
     assertThat(cancelled.name()).isEqualTo("alice");
     assertThat(cancelled.namespaces()).containsExactly("shop");

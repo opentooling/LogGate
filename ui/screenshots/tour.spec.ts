@@ -189,7 +189,8 @@ test("the tour, as someone in two teams", async ({ page }) => {
   const audit = page.locator('[data-testid="audit"]');
   await expect(audit.locator('[data-testid="audit-row"]').first()).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: `${OUT}/14-audit.png`, fullPage: true });
+  // The first screen of it: the whole trail is as long as the stack is old.
+  await page.screenshot({ path: `${OUT}/14-audit.png` });
   await page.getByRole("button", { name: "Export" }).click();
 
   // A range longer than one export may cover is stopped as it is chosen.

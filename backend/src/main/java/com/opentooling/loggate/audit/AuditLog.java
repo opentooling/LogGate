@@ -96,13 +96,21 @@ public class AuditLog {
         db.sql(
                 """
                 SELECT e.id, e.at, e.actor, e.action, e.detail::text AS detail, e.source_ip,
-                       k.job_id, j.requested_by_name, j.namespaces, j.clusters
+                       k.job_id, coalesce(j.requested_by_name, anyone.name) AS requested_by_name,
+                       j.namespaces, j.clusters
                 FROM audit_event e
                 CROSS JOIN LATERAL (
                   SELECT coalesce(e.job_id,
                     CASE WHEN e.detail->>'jobId' ~* '^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$'
                          THEN (e.detail->>'jobId')::uuid END) AS job_id) k
                 LEFT JOIN export_job j ON j.id = k.job_id
+                -- An event about no export, a refusal or a denial recorded
+                -- before names were kept, takes the name from the person's
+                -- latest export, when there is one.
+                LEFT JOIN LATERAL (
+                  SELECT requested_by_name AS name FROM export_job
+                  WHERE requested_by = e.actor AND requested_by_name IS NOT NULL
+                  ORDER BY created_at DESC LIMIT 1) anyone ON j.id IS NULL
                 WHERE e.action IN (:actions) AND (:before::bigint IS NULL OR e.id < :before::bigint)
                 ORDER BY e.id DESC
                 LIMIT :limit

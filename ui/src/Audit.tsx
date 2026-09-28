@@ -184,7 +184,7 @@ export function Audit({ onError }: { onError: (message: string) => void }) {
                       <span className={how.tone ? `how how-${how.tone}` : "how"} title={how.detail}>
                         {how.label}
                       </span>
-                      {event.files !== null && <small>{formatCount(event.files)} files</small>}
+                      {event.files !== null && <small>{formatCount(event.files)} {event.files === 1 ? "file" : "files"}</small>}
                       {event.note && <small className="audit-note">{event.note}</small>}
                     </td>
                     <td>
