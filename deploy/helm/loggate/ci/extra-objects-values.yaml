@@ -50,3 +50,9 @@ extraObjects:
       kind: ConfigMap
       metadata:
         name: {{ include "loggate.fullname" $ }}-ci-string-on
+  # No condition: always rendered.
+  - object:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: '{{ include "loggate.fullname" $ }}-ci-no-when'

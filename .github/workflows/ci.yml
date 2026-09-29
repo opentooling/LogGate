@@ -122,6 +122,7 @@ jobs:
           # Conditional items: rendered when the flag is set, and only then.
           grep -q 'loggate-ci-flag-on' rendered.yaml
           grep -q 'name: loggate-ci-string-on' rendered.yaml
+          grep -q 'loggate-ci-no-when' rendered.yaml
           ! grep -q -e 'ci-flag-off' -e 'ci-flag-missing' -e 'ci-string-off' rendered.yaml
           echo "Both extraObjects forms rendered, conditional ones only when enabled."
 

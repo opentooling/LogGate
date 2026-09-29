@@ -6,7 +6,9 @@ can use template expressions such as {{ include "loggate.fullname" $ }}.
 An item can instead be wrapped as {when, object} to render only on a condition,
 such as a feature flag: `when` is true or false, or a template string rendered
 against the release, which counts as false when it comes out empty, "false",
-"0", "no", "off" or "null". `object` is the item itself, in either form.
+"0", "no", "off" or "null". `when` is optional; without it the object always
+renders, so a block can wrap every item alike. `object` is the item itself, in
+either form.
 */}}
 {{- $falsy := list "" "false" "0" "no" "off" "null" "<nil>" }}
 {{- range $index, $item := .Values.extraObjects }}

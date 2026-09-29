@@ -398,6 +398,7 @@ loki:
 # To render an item only on a condition, such as a feature flag of your own,
 # wrap it as {when, object}: `when` is true, false, or a template string that
 # counts as false when it renders empty, "false", "0", "no", "off" or "null".
+# `when` is optional: {object} alone always renders.
 #   features:
 #     backups: true
 #   extraObjects:
