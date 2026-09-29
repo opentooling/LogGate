@@ -210,6 +210,29 @@ jobs:
       # Metrics are scraped on a port the Ingress and Route never reach, so the
       # scrape paths are proven to point there, and the dashboard the chart
       # ships is proven to be a dashboard.
+      # A registry that needs credentials: every pod the chart makes, test
+      # included, must carry the pull secrets, or one of them never starts.
+      - name: Render image pull secrets
+        run: |
+          helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \
+            --set 'imagePullSecrets[0].name=registry-credentials' \
+            --set 'global.imagePullSecrets[0]=mirror-credentials' > pull.yaml
+          python3 - <<'PY'
+          import yaml
+          docs = [d for d in yaml.safe_load_all(open("pull.yaml")) if d]
+          pods = []
+          for d in docs:
+              spec = d.get("spec", {})
+              pod = spec if d["kind"] == "Pod" else spec.get("template", {}).get("spec")
+              if pod:
+                  pods.append(d["metadata"]["name"])
+                  want = [{"name": "mirror-credentials"}, {"name": "registry-credentials"}]
+                  assert pod.get("imagePullSecrets") == want, (d["metadata"]["name"], pod.get("imagePullSecrets"))
+          assert len(pods) == 4, pods
+          print("Every pod pulls with the secrets:", ", ".join(pods))
+          PY
+          ! helm template t deploy/helm/loggate -f deploy/local/values-local.yaml 2>/dev/null | grep -q imagePullSecrets
+
       - name: Render the metrics options
         run: |
           helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \

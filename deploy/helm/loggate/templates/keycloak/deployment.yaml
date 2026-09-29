@@ -25,6 +25,7 @@ spec:
         # Re-import the realm whenever it changes.
         checksum/realm: {{ include (print $.Template.BasePath "/keycloak/realm-configmap.yaml") . | sha256sum }}
     spec:
+      {{- include "loggate.imagePullSecrets" . | nindent 6 }}
       securityContext:
         {{- if not (include "loggate.openshift" .) }}
         runAsUser: 1000

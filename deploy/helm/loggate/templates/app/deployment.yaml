@@ -37,6 +37,7 @@ spec:
     {{- $lokiCa := include "loggate.caSource" (dict "ca" .Values.loki.caCertificate "name" "loki.caCertificate") | trim }}
     spec:
       serviceAccountName: {{ include "loggate.fullname" . }}
+      {{- include "loggate.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.hostAliases }}
       hostAliases:
         {{- toYaml . | nindent 8 }}

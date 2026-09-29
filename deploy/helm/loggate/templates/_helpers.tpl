@@ -235,3 +235,26 @@ values).
 - name: SPRING_SSL_BUNDLE_PEM_{{ upper .bundle }}_TRUSTSTORE_CERTIFICATE
   value: file:/etc/loggate/{{ .bundle }}-ca/{{ .ca.key | default "ca.crt" }}
 {{- end -}}
+
+{{/*
+The Secrets each pod pulls its images with: imagePullSecrets, and
+global.imagePullSecrets for a parent chart that sets them once for all its
+subcharts. Each entry is a Secret's name, or {name: ...} as a pod spec writes
+it. Renders the whole imagePullSecrets field, or nothing when there are none.
+*/}}
+{{- define "loggate.imagePullSecrets" -}}
+{{- $names := list -}}
+{{- $global := get (.Values.global | default dict) "imagePullSecrets" | default list -}}
+{{- range concat $global (.Values.imagePullSecrets | default list) -}}
+{{- $name := "" -}}
+{{- if kindIs "map" . -}}{{- $name = .name -}}{{- else -}}{{- $name = . -}}{{- end -}}
+{{- if not $name -}}{{- fail "imagePullSecrets entries need a Secret name: a string, or {name: ...}" -}}{{- end -}}
+{{- $names = append $names (toString $name) -}}
+{{- end -}}
+{{- with $names | uniq }}
+imagePullSecrets:
+{{- range . }}
+  - name: {{ . }}
+{{- end }}
+{{- end -}}
+{{- end -}}

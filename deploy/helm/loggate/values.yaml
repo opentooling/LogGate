@@ -6,6 +6,16 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
+# -- Secrets to pull images with, for a registry that needs credentials: the
+# names of kubernetes.io/dockerconfigjson Secrets in the release namespace,
+# created beforehand (by hand, External Secrets, or your registry's operator).
+# Every pod the chart makes uses them: LogGate and its init containers, the
+# in-cluster PostgreSQL and Keycloak, and the Helm test. global.imagePullSecrets
+# is honoured too, for a parent chart that sets them once.
+#   imagePullSecrets:
+#     - name: registry-credentials
+imagePullSecrets: []
+
 # -- API replicas. Sessions are shared through PostgreSQL, so a login that
 # starts on one pod and finishes on another works, and a rolling update does
 # not interrupt one in flight.
