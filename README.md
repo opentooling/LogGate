@@ -224,18 +224,34 @@ then `e2e/wait-for-logs.sh`, which returns once Loki can actually serve them.
 ### Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
-`main` and every pull request:
+`main` and every pull request, and runs the jobs the change needs:
 
 | Job | What it proves |
 | --- | --- |
+| What changed | which of the jobs below the changed paths need, by [`.github/scripts/changes.sh`](.github/scripts/changes.sh) |
 | Build and test | `./gradlew check` — unit and Testcontainers integration tests, the 95% line and branch gate, the UI tests and build — then the Jib image |
 | Helm chart | the chart lints; `extraObjects` renders in both forms, and conditional items only when enabled; the OpenShift example renders as documented; unsafe access configurations refuse to render |
 | Architecture model | `docs/architecture.calm.json` validates with the FINOS CALM CLI |
 | End-to-end on k3d | the whole stack deployed to a fresh cluster by `deploy/local/deploy.sh`, with a second cluster's logs, then every suite above, including Playwright and the OpenShift check |
-| Publish image, Publish chart | on `main` only, after every job above passes: the multi-arch image, then the chart, pulled back to check it installs that image |
+| Publish image, Publish chart | on `main` only, for a change to the application or the chart, after every job it needed passes: the multi-arch image, then the chart, pulled back to check it installs that image |
 
 The end-to-end job runs only once the build and chart jobs pass, and on failure
 keeps the pod logs, cluster events and Playwright traces as a run artifact.
+
+Which jobs run follows from the paths a change touches:
+
+| Changed | Runs |
+| --- | --- |
+| `backend/`, `ui/`, the Gradle build, `docs/USER-GUIDE.md`, `docs/images/` (the guide is built into the image) | build, end-to-end, publish |
+| `deploy/helm/` | chart, end-to-end, publish |
+| `deploy/local/` | chart, end-to-end |
+| `e2e/` | end-to-end |
+| `deploy/examples/` | chart |
+| `docs/ARCHITECTURE.md`, `docs/architecture.calm.json` | architecture model |
+| `README.md`, `LICENSE`, other docs | nothing |
+| `.github/`, or any path the script does not know | everything |
+
+A run with nothing to compare against, such as a manual run, runs everything.
 
 ### Screenshots
 

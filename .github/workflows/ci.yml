@@ -30,8 +30,54 @@ env:
   CALM_CLI_VERSION: 1.60.1
 
 jobs:
+  # Which jobs this change needs, from the paths it touches; see
+  # .github/scripts/changes.sh. An example or the README alone should not
+  # build, run a cluster for twenty minutes and publish a release.
+  changes:
+    name: What changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      chart: ${{ steps.decide.outputs.chart }}
+      e2e: ${{ steps.decide.outputs.e2e }}
+      architecture: ${{ steps.decide.outputs.architecture }}
+      publish: ${{ steps.decide.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # A push is compared with the commit before it, a pull request with where
+      # it branched. With nothing to compare against (a manual run, a new
+      # branch, or a force push that dropped the old head), everything runs.
+      - name: Decide
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            base="$(git merge-base "$BASE" HEAD)"
+          elif [[ "$EVENT" == push ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          else
+            base=""
+          fi
+          if [[ -n "$base" ]]; then
+            echo "Changed since ${base:0:7}:"
+            git diff --name-only "$base" HEAD | tee changed.txt | sed 's/^/  /'
+            .github/scripts/changes.sh < changed.txt | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "Nothing to compare against; running everything."
+            .github/scripts/changes.sh --all | tee -a "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build and test
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -90,6 +136,8 @@ jobs:
 
   chart:
     name: Helm chart
+    needs: changes
+    if: needs.changes.outputs.chart == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -123,7 +171,9 @@ jobs:
           grep -q 'loggate-ci-flag-on' rendered.yaml
           grep -q 'name: loggate-ci-string-on' rendered.yaml
           grep -q 'loggate-ci-no-when' rendered.yaml
-          ! grep -q -e 'ci-flag-off' -e 'ci-flag-missing' -e 'ci-string-off' rendered.yaml
+          if grep -e 'ci-flag-off' -e 'ci-flag-missing' -e 'ci-string-off' rendered.yaml; then
+            echo "::error::a conditional extraObjects item rendered with its flag off"; exit 1
+          fi
           echo "Both extraObjects forms rendered, conditional ones only when enabled."
 
       # The production example for OpenShift and open access, held to what it
@@ -236,7 +286,9 @@ jobs:
           assert len(pods) == 4, pods
           print("Every pod pulls with the secrets:", ", ".join(pods))
           PY
-          ! helm template t deploy/helm/loggate -f deploy/local/values-local.yaml 2>/dev/null | grep -q imagePullSecrets
+          if helm template t deploy/helm/loggate -f deploy/local/values-local.yaml | grep -q imagePullSecrets; then
+            echo "::error::pods carry imagePullSecrets when none are set"; exit 1
+          fi
 
       # The Vault Secrets Operator example: VSO's own template must reach it
       # untouched by Helm's tpl, with the registry host filled in, and every
@@ -301,6 +353,8 @@ jobs:
 
   architecture:
     name: Architecture model
+    needs: changes
+    if: needs.changes.outputs.architecture == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -317,8 +371,12 @@ jobs:
 
   e2e:
     name: End-to-end on k3d
-    # Only worth a real cluster once the cheaper checks pass.
-    needs: [build, chart]
+    # Only worth a real cluster once the cheaper checks pass. A check this
+    # change did not need is skipped, and a skipped check is no reason to stop.
+    needs: [changes, build, chart]
+    if: >-
+      !cancelled() && needs.changes.outputs.e2e == 'true'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -459,10 +517,14 @@ jobs:
 
   publish-image:
     name: Publish image to GHCR
-    # Only from main, and only a commit that passed every check, including the
-    # end-to-end run on a real cluster.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build, chart, architecture, e2e]
+    # Only from main, only for a change to what is published (the application
+    # or the chart, whose default image tag is this commit's image), and only a
+    # commit that passed every check it needed, including the end-to-end run.
+    needs: [changes, build, chart, architecture, e2e]
+    if: >-
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && needs.changes.outputs.publish == 'true'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -519,8 +581,11 @@ jobs:
 
   publish-chart:
     name: Publish Helm chart to GHCR
-    # After the image, so the chart's default image tag always resolves.
+    # After the image, so the chart's default image tag always resolves. The
+    # condition is explicit: by default a job is skipped when any job further
+    # up was, and a chart-only change skips the build.
     needs: publish-image
+    if: ${{ !cancelled() && needs.publish-image.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
