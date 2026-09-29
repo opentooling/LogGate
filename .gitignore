@@ -26,3 +26,11 @@ ui/tsconfig.tsbuildinfo
 
 # Generated from docs/USER-GUIDE.md by every UI build
 ui/public/guide/
+
+# Charts rendered by the CI checks, when they are run locally
+/ca.yaml
+/metrics.yaml
+/openshift.yaml
+/pull.yaml
+/rendered.yaml
+/vault.yaml
