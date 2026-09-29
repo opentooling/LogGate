@@ -1,0 +1,87 @@
+# An overlay: pull every image from a registry that needs credentials, with
+# the credentials kept in Vault and delivered by the Vault Secrets Operator.
+# Add it after your other values, which it leaves alone:
+#
+#   helm upgrade --install loggate deploy/helm/loggate -n loggate \
+#     -f my-values.yaml -f deploy/examples/values-vault-image-pull.yaml
+#
+# VSO reads a username and token from Vault and writes them into a
+# kubernetes.io/dockerconfigjson Secret; every pod the chart makes pulls with
+# it. On a fresh install, pods may sit in ImagePullBackOff for the few seconds
+# before VSO first writes the Secret, and pull on the next retry.
+#
+# Needs VSO installed, with a default VaultConnection (or add
+# vaultConnectionRef to the VaultAuth below), and this in Vault, once:
+#
+#   vault kv put kv/loggate/registry username=robot-loggate password='<token>'
+#
+#   vault policy write loggate-registry - <<'EOF'
+#   path "kv/data/loggate/registry" { capabilities = ["read"] }
+#   EOF
+#
+#   vault write auth/kubernetes/role/loggate \
+#     bound_service_account_names=loggate \
+#     bound_service_account_namespaces=loggate \
+#     policies=loggate-registry audience=vault ttl=1h
+#
+# The role is bound to LogGate's own service account (named after the release),
+# so only LogGate can read the credentials.
+#
+# With a mirror, point the images at it as well:
+#   image.repository, postgres.image and keycloak.image.repository
+
+imagePullSecrets:
+  - name: registry-credentials
+
+# Where the images come from; the pull secret is written for this host.
+registry:
+  host: registry.example.com
+
+# If your values already set extraObjects, move these two items into that list:
+# Helm replaces lists rather than merging them.
+extraObjects:
+  # How VSO signs in to Vault: Kubernetes auth as LogGate's service account.
+  - object:
+      apiVersion: secrets.hashicorp.com/v1beta1
+      kind: VaultAuth
+      metadata:
+        name: loggate
+      spec:
+        method: kubernetes
+        mount: kubernetes
+        kubernetes:
+          role: loggate
+          serviceAccount: '{{ include "loggate.fullname" $ }}'
+          audiences: [vault]
+
+  # The credentials from kv/loggate/registry (fields username and password),
+  # written as the pull secret, and refreshed hourly so a rotated token is
+  # picked up without a redeploy.
+  - object:
+      apiVersion: secrets.hashicorp.com/v1beta1
+      kind: VaultStaticSecret
+      metadata:
+        name: registry-credentials
+      spec:
+        vaultAuthRef: loggate
+        mount: kv
+        type: kv-v2
+        path: loggate/registry
+        refreshAfter: 1h
+        destination:
+          name: registry-credentials
+          create: true
+          overwrite: true
+          type: kubernetes.io/dockerconfigjson
+          transformation:
+            # Only .dockerconfigjson in the Secret, not the raw fields.
+            excludeRaw: true
+            excludes: [".*"]
+            templates:
+              .dockerconfigjson:
+                # The chart renders extraObjects with Helm's tpl, so VSO's own
+                # template is wrapped in {{` `}} to reach VSO untouched. The
+                # registry host, outside the wrapper, is filled in by Helm.
+                text: |
+                  {{`{{- $auth := printf "%s:%s" (get .Secrets "username") (get .Secrets "password") | b64enc -}}`}}
+                  {"auths":{"{{ .Values.registry.host }}":{"auth":"{{`{{ $auth }}`}}"}}}

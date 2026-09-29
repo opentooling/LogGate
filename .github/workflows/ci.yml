@@ -238,6 +238,37 @@ jobs:
           PY
           ! helm template t deploy/helm/loggate -f deploy/local/values-local.yaml 2>/dev/null | grep -q imagePullSecrets
 
+      # The Vault Secrets Operator example: VSO's own template must reach it
+      # untouched by Helm's tpl, with the registry host filled in, and every
+      # pod must pull with the Secret it writes.
+      - name: Render the Vault image-pull example
+        run: |
+          helm lint deploy/helm/loggate -f deploy/local/values-local.yaml \
+            -f deploy/examples/values-vault-image-pull.yaml
+          helm template loggate deploy/helm/loggate -n loggate -f deploy/local/values-local.yaml \
+            -f deploy/examples/values-vault-image-pull.yaml > vault.yaml
+          python3 - <<'PY'
+          import yaml
+          docs = [d for d in yaml.safe_load_all(open("vault.yaml")) if d]
+          auth = next(d for d in docs if d["kind"] == "VaultAuth")
+          assert auth["spec"]["kubernetes"]["serviceAccount"] == "loggate", auth
+          vss = next(d for d in docs if d["kind"] == "VaultStaticSecret")
+          dest = vss["spec"]["destination"]
+          assert dest["type"] == "kubernetes.io/dockerconfigjson", dest
+          text = dest["transformation"]["templates"][".dockerconfigjson"]["text"]
+          assert '{{- $auth := printf "%s:%s" (get .Secrets "username")' in text, text
+          assert '{"auths":{"registry.example.com":{"auth":"{{ $auth }}"}}}' in text, text
+          pods = 0
+          for d in docs:
+              spec = d.get("spec", {})
+              pod = spec if d["kind"] == "Pod" else spec.get("template", {}).get("spec")
+              if pod:
+                  pods += 1
+                  assert pod.get("imagePullSecrets") == [{"name": dest["name"]}], d["metadata"]["name"]
+          assert pods == 4, pods
+          print("The Vault example renders VSO's template intact, and every pod pulls with its Secret.")
+          PY
+
       - name: Render the metrics options
         run: |
           helm template t deploy/helm/loggate -f deploy/local/values-local.yaml \

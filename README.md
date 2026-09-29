@@ -137,6 +137,11 @@ access for a Keycloak group across several clusters, an external PostgreSQL,
 and NetApp ONTAP S3 behind an internal CA. It includes the Keycloak steps and
 the secrets to create.
 
+[`deploy/examples/values-vault-image-pull.yaml`](deploy/examples/values-vault-image-pull.yaml)
+is an overlay for a registry that needs credentials: the Vault Secrets Operator
+writes the pull secret from Vault, and every pod pulls with it. It includes the
+Vault steps.
+
 Signing out also signs out of Keycloak, which returns to the landing page,
 `https://<your LogGate host>/welcome`. Add `https://<your LogGate host>/*`
 to the client's **Valid post logout redirect URIs**, or Keycloak stops at an
