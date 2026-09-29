@@ -154,6 +154,7 @@ The settings that change how LogGate behaves:
 | `openshift.enabled`, `route.enabled` | run under `restricted-v2`, served by a Route |
 | `postgres.existingSecret`, `externalDatabase.existingSecret`, `oidc.existingSecret`, `storage.existingSecret` | Secrets of your own (from External Secrets, say) for the database password, OIDC client secret and storage keys, in place of the chart's `<release>-secrets`. The chart creates that Secret only for values that have no other source, so with all of them set it creates none. With `keycloak.enabled=false`, the client secret must come from `oidc.existingSecret` or `oidc.clientSecret` |
 | `imagePullSecrets` | Secrets to pull images with from a registry that needs credentials, used by every pod the chart makes (`global.imagePullSecrets` too). With a mirror, point `image.repository`, `postgres.image` and `keycloak.image.repository` at it as well |
+| `extraObjects` | extra manifests to deploy with the release, as YAML or template strings; wrap one as `{when: "{{ .Values.features.x }}", object: ...}` to render it only when a flag of yours is set |
 | `storage.checksums` | `whenRequired` (default) for S3-compatible stores; `whenSupported` for AWS only |
 | `storage.caCertificate`, `loki.caCertificate`, `pods.caCertificate`, `oidc.caCertificate` | a Secret (`secretName`) or ConfigMap (`configMapName`) holding the CA to trust for storage, Loki, the metrics store or the identity provider. The first three become Spring Boot SSL bundles that replace the JVM's trust for that client alone; the identity provider's is added to the JVM's roots, since Spring Security discovers the issuer with a client nothing else can configure |
 | `pods.metricsUrl` | a Prometheus-compatible API to list pods from; empty leaves the pod pattern as the only way to narrow by pod |
@@ -223,7 +224,7 @@ then `e2e/wait-for-logs.sh`, which returns once Loki can actually serve them.
 | Job | What it proves |
 | --- | --- |
 | Build and test | `./gradlew check` — unit and Testcontainers integration tests, the 95% line and branch gate, the UI tests and build — then the Jib image |
-| Helm chart | the chart lints; `extraObjects` renders in both forms; the OpenShift example renders as documented; unsafe access configurations refuse to render |
+| Helm chart | the chart lints; `extraObjects` renders in both forms, and conditional items only when enabled; the OpenShift example renders as documented; unsafe access configurations refuse to render |
 | Architecture model | `docs/architecture.calm.json` validates with the FINOS CALM CLI |
 | End-to-end on k3d | the whole stack deployed to a fresh cluster by `deploy/local/deploy.sh`, with a second cluster's logs, then every suite above, including Playwright and the OpenShift check |
 | Publish image, Publish chart | on `main` only, after every job above passes: the multi-arch image, then the chart, pulled back to check it installs that image |

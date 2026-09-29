@@ -1,5 +1,9 @@
 # Rendered in CI to prove extraObjects works in both of its forms: a YAML
-# object and a templated string, each able to reach the release's own helpers.
+# object and a templated string, each able to reach the release's own helpers;
+# and that a conditional item renders only when its condition holds.
+features:
+  backups: true
+  tracing: false
 extraObjects:
   - apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
@@ -16,3 +20,33 @@ extraObjects:
       namespace: {{ .Release.Namespace }}
     data:
       rendered: "yes"
+  - when: '{{ .Values.features.backups }}'
+    object:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: '{{ include "loggate.fullname" $ }}-ci-flag-on'
+  - when: '{{ .Values.features.tracing }}'
+    object:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: '{{ include "loggate.fullname" $ }}-ci-flag-off'
+  - when: '{{ .Values.features.missing }}'
+    object:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: '{{ include "loggate.fullname" $ }}-ci-flag-missing'
+  - when: false
+    object: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: {{ include "loggate.fullname" $ }}-ci-string-off
+  - when: true
+    object: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: {{ include "loggate.fullname" $ }}-ci-string-on

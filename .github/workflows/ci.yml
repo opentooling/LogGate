@@ -119,7 +119,11 @@ jobs:
           grep -q "name: 'loggate-ci-object'" rendered.yaml
           grep -q 'name: loggate-ci-string' rendered.yaml
           grep -q 'rendered: "yes"' rendered.yaml
-          echo "Both extraObjects forms rendered."
+          # Conditional items: rendered when the flag is set, and only then.
+          grep -q 'loggate-ci-flag-on' rendered.yaml
+          grep -q 'name: loggate-ci-string-on' rendered.yaml
+          ! grep -q -e 'ci-flag-off' -e 'ci-flag-missing' -e 'ci-string-off' rendered.yaml
+          echo "Both extraObjects forms rendered, conditional ones only when enabled."
 
       # The production example for OpenShift and open access, held to what it
       # promises: a Route with a timeout long enough for a streamed download,

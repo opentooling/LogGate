@@ -395,6 +395,16 @@ loki:
 # Items can be YAML objects or strings; both are rendered with `tpl`, so template
 # expressions like {{ include "loggate.fullname" $ }} and {{ .Release.Namespace }}
 # work. CRDs for any custom resources must already be installed in the cluster.
+# To render an item only on a condition, such as a feature flag of your own,
+# wrap it as {when, object}: `when` is true, false, or a template string that
+# counts as false when it renders empty, "false", "0", "no", "off" or "null".
+#   features:
+#     backups: true
+#   extraObjects:
+#     - when: "{{ .Values.features.backups }}"
+#       object:
+#         apiVersion: ...
+# Avoid on, off, yes and no as flag names: YAML reads those keys as booleans.
 extraObjects: []
 #  - apiVersion: route.openshift.io/v1
 #    kind: Route
