@@ -33,7 +33,6 @@ public class HttpLokiClient implements LokiClient {
   private static final Logger log = LoggerFactory.getLogger(HttpLokiClient.class);
 
   private static final int MAX_ATTEMPTS = 5;
-  /** Cheaper page size used after a 429 or 5xx, so a retry is less likely to fail the same way. */
   private static final int RETRY_QUERY_LIMIT = 1000;
   private static final Duration INITIAL_BACKOFF = Duration.ofSeconds(1);
   private static final Duration MAX_BACKOFF = Duration.ofSeconds(30);
@@ -225,8 +224,8 @@ public class HttpLokiClient implements LokiClient {
   }
 
   /**
-   * After the first failure, ask Loki for a smaller page. A large {@code limit}
-   * is often what made the request expensive; shrinking it must not raise a
+   * After the first failure we reduce the batch size. A large {@code limit}
+   * can fail if the payload exceeds grpc_server_max_recv_msg_size; shrinking it must not raise a
    * caller that already asked for less.
    */
   private static void shrinkLimitOnRetry(Map<String, Object> params, int attempt) {
