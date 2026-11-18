@@ -41,6 +41,8 @@ import java.util.function.Consumer;
  * export. At the default limit of 5000 this needs 5000 lines in the same
  * nanosecond from one selector, which is implausible - but it is a real
  * constraint, not a theoretical one, so it fails loudly if it ever happens.
+ * A retry may use a smaller page than the configured limit; paging still
+ * follows whether that page came back full.
  */
 public class WindowPager {
 

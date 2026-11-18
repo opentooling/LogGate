@@ -33,6 +33,8 @@ public class HttpLokiClient implements LokiClient {
   private static final Logger log = LoggerFactory.getLogger(HttpLokiClient.class);
 
   private static final int MAX_ATTEMPTS = 5;
+  /** Cheaper page size used after a 429 or 5xx, so a retry is less likely to fail the same way. */
+  private static final int RETRY_QUERY_LIMIT = 1000;
   private static final Duration INITIAL_BACKOFF = Duration.ofSeconds(1);
   private static final Duration MAX_BACKOFF = Duration.ofSeconds(30);
 
@@ -127,6 +129,8 @@ public class HttpLokiClient implements LokiClient {
     params.put("limit", Integer.toString(limit));
     params.put("direction", "forward");
     JsonNode body = get("/loki/api/v1/query_range", params);
+    // Retries may have lowered the page size; isFull() must use what was sent.
+    int usedLimit = Integer.parseInt(params.get("limit").toString());
 
     List<LogEntry> entries = new ArrayList<>();
     for (JsonNode stream : body.path("data").path("result")) {
@@ -141,7 +145,7 @@ public class HttpLokiClient implements LokiClient {
     }
     // Loki returns one array per stream; the pager needs a single ordering.
     entries.sort(Comparator.comparingLong(LogEntry::timestampNanos));
-    return new QueryPage(List.copyOf(entries), limit);
+    return new QueryPage(List.copyOf(entries), usedLimit);
   }
 
   @Override
@@ -180,6 +184,7 @@ public class HttpLokiClient implements LokiClient {
     RuntimeException last = null;
 
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      shrinkLimitOnRetry(params, attempt);
       try {
         String body =
             http.get()
@@ -217,6 +222,23 @@ public class HttpLokiClient implements LokiClient {
       }
     }
     throw new LokiException("Loki did not succeed after " + MAX_ATTEMPTS + " attempts", last);
+  }
+
+  /**
+   * After the first failure, ask Loki for a smaller page. A large {@code limit}
+   * is often what made the request expensive; shrinking it must not raise a
+   * caller that already asked for less.
+   */
+  private static void shrinkLimitOnRetry(Map<String, Object> params, int attempt) {
+    if (attempt <= 1 || !params.containsKey("limit")) {
+      return;
+    }
+    int current = Integer.parseInt(params.get("limit").toString());
+    if (current <= RETRY_QUERY_LIMIT) {
+      return;
+    }
+    params.put("limit", Integer.toString(RETRY_QUERY_LIMIT));
+    log.warn("reducing Loki query limit from {} to {} for retry", current, RETRY_QUERY_LIMIT);
   }
 
   /** 429 and 5xx are worth retrying; anything else is our fault, not load. */
