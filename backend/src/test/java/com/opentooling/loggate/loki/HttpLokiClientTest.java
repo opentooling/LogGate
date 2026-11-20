@@ -125,6 +125,7 @@ class HttpLokiClientTest {
     server
         .expect(requestTo(Matchers.containsString("/loki/api/v1/query_range")))
         .andExpect(queryParam("direction", "forward"))
+        .andExpect(queryParam("limit", "5000"))
         .andRespond(
             withSuccess(
                 """
@@ -168,6 +169,60 @@ class HttpLokiClientTest {
 
     assertThat(page.entries()).isEmpty();
     assertThat(slept).containsExactly(Duration.ofSeconds(7));
+    server.verify();
+  }
+
+  @Test
+  void reducesTheQueryLimitOnRetryAfterAServerError() {
+    server
+        .expect(requestTo(Matchers.containsString("/query_range")))
+        .andExpect(queryParam("limit", "5000"))
+        .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+    server
+        .expect(requestTo(Matchers.containsString("/query_range")))
+        .andExpect(queryParam("limit", "1000"))
+        .andRespond(withSuccess("{\"data\":{\"result\":[]}}", MediaType.APPLICATION_JSON));
+
+    QueryPage page = client("").queryRange("{}", FROM, TO, 5000);
+
+    assertThat(page.limit()).isEqualTo(1000);
+    assertThat(page.isFull()).isFalse();
+    server.verify();
+  }
+
+  @Test
+  void aFullRetryPageIsReportedFullSoPagingContinues() {
+    server
+        .expect(requestTo(Matchers.containsString("/query_range")))
+        .andExpect(queryParam("limit", "5000"))
+        .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+    server
+        .expect(requestTo(Matchers.containsString("/query_range")))
+        .andExpect(queryParam("limit", "1000"))
+        .andRespond(withSuccess(pageOf(1000), MediaType.APPLICATION_JSON));
+
+    QueryPage page = client("").queryRange("{}", FROM, TO, 5000);
+
+    assertThat(page.entries()).hasSize(1000);
+    assertThat(page.limit()).isEqualTo(1000);
+    assertThat(page.isFull()).isTrue();
+    server.verify();
+  }
+
+  @Test
+  void doesNotRaiseASmallerRequestedLimitOnRetry() {
+    server
+        .expect(requestTo(Matchers.containsString("/query_range")))
+        .andExpect(queryParam("limit", "10"))
+        .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+    server
+        .expect(requestTo(Matchers.containsString("/query_range")))
+        .andExpect(queryParam("limit", "10"))
+        .andRespond(withSuccess("{\"data\":{\"result\":[]}}", MediaType.APPLICATION_JSON));
+
+    QueryPage page = client("").queryRange("{}", FROM, TO, 10);
+
+    assertThat(page.limit()).isEqualTo(10);
     server.verify();
   }
 
@@ -395,5 +450,16 @@ class HttpLokiClientTest {
     org.assertj.core.api.Assertions.assertThatThrownBy(
             () -> client("").labelValues("../../admin", "", FROM, TO))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  private static String pageOf(int n) {
+    StringBuilder values = new StringBuilder();
+    for (int i = 0; i < n; i++) {
+      if (i > 0) {
+        values.append(',');
+      }
+      values.append("[\"").append(i).append("\",\"l").append(i).append("\"]");
+    }
+    return "{\"data\":{\"result\":[{\"stream\":{},\"values\":[" + values + "]}]}}";
   }
 }
