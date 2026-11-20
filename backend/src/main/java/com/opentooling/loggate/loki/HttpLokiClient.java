@@ -32,6 +32,7 @@ public class HttpLokiClient implements LokiClient {
 
   private static final Logger log = LoggerFactory.getLogger(HttpLokiClient.class);
 
+  private static final String LIMIT = "limit";
   private static final int MAX_ATTEMPTS = 5;
   private static final int RETRY_QUERY_LIMIT = 1000;
   private static final Duration INITIAL_BACKOFF = Duration.ofSeconds(1);
@@ -125,11 +126,11 @@ public class HttpLokiClient implements LokiClient {
     params.put("query", selector);
     params.put("start", nanos(from));
     params.put("end", nanos(to));
-    params.put("limit", Integer.toString(limit));
+    params.put(LIMIT, Integer.toString(limit));
     params.put("direction", "forward");
     JsonNode body = get("/loki/api/v1/query_range", params);
     // Retries may have lowered the page size; isFull() must use what was sent.
-    int usedLimit = Integer.parseInt(params.get("limit").toString());
+    int usedLimit = Integer.parseInt(params.get(LIMIT).toString());
 
     List<LogEntry> entries = new ArrayList<>();
     for (JsonNode stream : body.path("data").path("result")) {
@@ -229,14 +230,14 @@ public class HttpLokiClient implements LokiClient {
    * caller that already asked for less.
    */
   private static void shrinkLimitOnRetry(Map<String, Object> params, int attempt) {
-    if (attempt <= 1 || !params.containsKey("limit")) {
+    if (attempt <= 1 || !params.containsKey(LIMIT)) {
       return;
     }
-    int current = Integer.parseInt(params.get("limit").toString());
+    int current = Integer.parseInt(params.get(LIMIT).toString());
     if (current <= RETRY_QUERY_LIMIT) {
       return;
     }
-    params.put("limit", Integer.toString(RETRY_QUERY_LIMIT));
+    params.put(LIMIT, Integer.toString(RETRY_QUERY_LIMIT));
     log.warn("reducing Loki query limit from {} to {} for retry", current, RETRY_QUERY_LIMIT);
   }
 
